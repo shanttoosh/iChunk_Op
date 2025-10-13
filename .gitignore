@@ -1,0 +1,211 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# State & History Files
+current_state.pkl
+*.pkl
+*.pickle
+*.history
+.history/
+history/
+*.log
+
+# Temporary Files
+*.tmp
+*.temp
+temp/
+tmp/
+.tmp/
+*.bak
+*.backup
+*~
+
+# Vector Databases & Indexes
+faiss_index/
+faiss_index.bin
+*.index
+*.faiss
+chroma_db/
+chromadb/
+*.db
+*.sqlite
+*.sqlite3
+
+# Data Files (large datasets)
+*.csv
+!test_data.csv
+!sample_data.csv
+data/
+datasets/
+*.xlsx
+*.xls
+*.parquet
+
+# Embeddings & Exports
+embeddings/
+*.npy
+*.npz
+exports/
+output/
+results/
+
+# Model Cache
+.cache/
+models/
+*.bin
+*.pt
+*.pth
+sentence_transformers/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.key
+secrets/
+credentials/
+
+# OS Files
+Thumbs.db
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Documentation Build
+docs/_build/
+site/
+
+# Test Coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Backup Files
+*.bak
+*.backup
+*.old
+*_backup
+*_old
+
+# Temporary Python Scripts
+fix_*.py
+temp_*.py
+test_*.py
+debug_*.py
+cleanup_*.py
+
+# Temporary Text Files
+*.txt.new
+*.md.new
+temp_*.txt
+temp_*.md
+
+# Node modules (if using any JS tools)
+node_modules/
+package-lock.json
+
+# Streamlit
+.streamlit/
+
+# FastAPI / Uvicorn
+*.pid
+
+# System Files
+.fuse_hidden*
+.directory
+.Trash-*
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Large Files
+*.bin
+*.dat
+*.h5
+*.hdf5
+
+# Compiled
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Packages
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Misc
+.sass-cache/
+.connect.lock
+.versions
+

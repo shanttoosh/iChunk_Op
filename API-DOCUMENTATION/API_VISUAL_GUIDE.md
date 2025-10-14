@@ -362,10 +362,10 @@
 ##  Decision Tree: Which Mode to Use?
 
 ```
-                  START: Need to process data?
+                    START: Need to process data?
                             |
                             v
-                   What's your goal?
+                     What's your goal?   
                             |
        +--------------------+--------------------+
        |                    |                    |

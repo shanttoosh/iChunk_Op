@@ -40,9 +40,19 @@ STATE_FILE = "current_state.pkl"
 def save_state():
     """Save current state to disk for persistence across API calls"""
     try:
+        # Handle FAISS storage info specially (can't pickle FAISS index objects)
+        store_info_to_save = current_store_info
+        if current_store_info and current_store_info.get("type") == "faiss":
+            # Don't save the FAISS index object, just the metadata
+            store_info_to_save = {
+                "type": "faiss",
+                "data": current_store_info.get("data", {}),
+                "metadata_index": current_store_info.get("metadata_index", {})
+            }
+        
         state = {
             'current_model': current_model,
-            'current_store_info': current_store_info,
+            'current_store_info': store_info_to_save,
             'current_chunks': current_chunks,
             'current_embeddings': current_embeddings,
             'current_df': current_df,
@@ -67,11 +77,56 @@ def load_state():
             current_embeddings = state.get('current_embeddings')
             current_df = state.get('current_df')
             current_file_info = state.get('current_file_info')
+            
+            # Fix for FAISS storage: Restore FAISS index from disk if needed
+            if current_store_info and current_store_info.get("type") == "faiss":
+                try:
+                    import faiss
+                    # Check if FAISS files exist
+                    if os.path.exists("faiss_store/index.faiss") and os.path.exists("faiss_store/data.pkl"):
+                        # Reload FAISS index from disk
+                        faiss_index = faiss.read_index("faiss_store/index.faiss")
+                        with open("faiss_store/data.pkl", "rb") as f:
+                            faiss_data = pickle.load(f)
+                        
+                        # Update current_store_info with proper FAISS objects
+                        current_store_info = {
+                            "type": "faiss",
+                            "index": faiss_index,
+                            "data": faiss_data,
+                            "metadata_index": faiss_data.get("metadata_index", {})
+                        }
+                        logger.info("FAISS index and data restored from disk")
+                    else:
+                        logger.warning("FAISS files not found on disk, FAISS storage may not work properly")
+                except Exception as faiss_error:
+                    logger.error(f"Failed to restore FAISS index from disk: {faiss_error}")
+            
             logger.info("State loaded from disk")
             return True
     except Exception as e:
         logger.error(f"Failed to load state: {e}")
     return False
+
+def debug_storage_state():
+    """Debug function to check current storage state"""
+    global current_store_info
+    if current_store_info:
+        store_type = current_store_info.get("type", "unknown")
+        logger.info(f"Current storage type: {store_type}")
+        if store_type == "faiss":
+            has_index = "index" in current_store_info
+            has_data = "data" in current_store_info
+            logger.info(f"FAISS storage - has_index: {has_index}, has_data: {has_data}")
+            if has_data:
+                data_keys = list(current_store_info["data"].keys()) if current_store_info["data"] else []
+                logger.info(f"FAISS data keys: {data_keys}")
+        elif store_type == "chroma":
+            has_collection = "collection" in current_store_info
+            collection_name = current_store_info.get("collection_name", "unknown")
+            logger.info(f"ChromaDB storage - has_collection: {has_collection}, collection_name: {collection_name}")
+    else:
+        logger.info("No storage info available")
 
 # -----------------------------
 # 🔹 Performance Optimization Configuration
@@ -827,7 +882,11 @@ def retrieve_similar(query: str, k: int = 5):
         load_state()
     
     # Debug: Check global variable states
-    logger.info(f"Retrieve debug - current_model: {current_model is not None}, current_store_info: {current_store_info is not None}, current_chunks: {len(current_chunks) if current_chunks else 0}")
+    store_type = current_store_info.get("type", "unknown") if current_store_info else "none"
+    logger.info(f"Retrieve debug - current_model: {current_model is not None}, current_store_info: {current_store_info is not None}, store_type: {store_type}, current_chunks: {len(current_chunks) if current_chunks else 0}")
+    
+    # Debug storage state
+    debug_storage_state()
     
     if current_model is None:
         return {"error": "No model available. Run embedding step first."}
@@ -1063,7 +1122,11 @@ def run_config1_pipeline(df, chunk_method,
         chunks = chunk_semantic_cluster(df1, n_clusters=n_clusters)
     else:  # document
         # Use provided key column or default to first column; do not preserve headers
-        key_column = (document_key_column if document_key_column else (df1.columns[0] if len(df1.columns) > 0 else "id"))
+        # Handle both None and empty string cases
+        if document_key_column and document_key_column.strip():
+            key_column = document_key_column
+        else:
+            key_column = (df1.columns[0] if len(df1.columns) > 0 else "id")
         chunks, _ = document_based_chunking(df1, key_column, token_limit=int(token_limit), preserve_headers=False)
 
     # Use local embedding model

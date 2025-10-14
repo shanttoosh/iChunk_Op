@@ -370,11 +370,11 @@ b64_logo = base64.b64encode(logo_svg.encode('utf-8')).decode("utf-8")
 st.markdown(
     f'''
     <div style="text-align: center; margin-bottom: 20px;">
-        <img src="data:image/svg+xml;base64,{b64_logo}" width="300" alt="I Chunk Optimizer Logo">
+        <img src="data:image/svg+xml;base64,{b64_logo}" width="300" alt="iChunk Optimizer Logo">
     </div>
     <div style="background: var(--ev-colors-primary); border: 1px solid var(--ev-colors-borderColor); border-radius: 8px; padding: 20px; margin-bottom: 30px;">
-        <h1 style="color: var(--ev-colors-text); text-align: center; margin: 0; font-size: 2.2em;">I Chunk Optimizer</h1>
-        <p style="color: var(--ev-colors-tertiaryText); text-align: center; margin: 10px 0 0 0; font-size: 1.1em;">Advanced Text Processing + 3GB File Support + Performance Optimized</p>
+        <h1 style="color: var(--ev-colors-text); text-align: center; margin: 0; font-size: 2.2em;">iChunk Optimizer</h1>
+        <p style="color: var(--ev-colors-tertiaryText); text-align: center; margin: 10px 0 0 0; font-size: 1.1em;">Smart Chunking, Smarter Insights: Transform Text into Actionable Intelligence</p>
     </div>
     ''',
     unsafe_allow_html=True
@@ -550,8 +550,10 @@ def call_deep_config_store_api(store_params: dict):
             "storage_type": storage_type,
             "collection_name": collection_name
         }
+        
         response = requests.post(f"{API_BASE_URL}/deep_config/store", data=data)
-        return response.json()
+        result = response.json()
+        return result
     except Exception as e:
         return {"error": f"Store API call failed: {str(e)}"}
 
@@ -654,6 +656,90 @@ def db_test_connection_api(payload: dict):
 def db_list_tables_api(payload: dict):
     return requests.post(f"{API_BASE_URL}/db/list_tables", data=payload).json()
 
+# ---------------------------
+# 🎯 Campaign Mode API Functions
+# ---------------------------
+
+def call_campaign_api(file_path: str, filename: str, config: dict, db_config: dict = None,
+                     use_openai: bool = False, openai_api_key: str = None, openai_base_url: str = None,
+                     process_large_files: bool = True, use_turbo: bool = False, batch_size: int = 256):
+    """Send campaign data to backend"""
+    try:
+        if db_config and db_config.get('use_db'):
+            data = {k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in config.items()}
+            data.update({
+                "db_type": db_config["db_type"],
+                "host": db_config["host"],
+                "port": str(db_config["port"]),
+                "username": db_config["username"],
+                "password": db_config["password"],
+                "database": db_config["database"],
+                "table_name": db_config["table_name"],
+                "use_openai": str(use_openai).lower(),
+                "openai_api_key": openai_api_key or "",
+                "openai_base_url": openai_base_url or "",
+                "process_large_files": str(process_large_files).lower(),
+                "use_turbo": str(use_turbo).lower(),
+                "batch_size": str(batch_size)
+            })
+            response = requests.post(f"{API_BASE_URL}/campaign/run", data=data)
+            return response.json()
+        else:
+            with open(file_path, 'rb') as f:
+                files = {"file": (filename, f, "text/csv")}
+                data = {k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in config.items()}
+                data.update({
+                    "use_openai": str(use_openai).lower(),
+                    "openai_api_key": openai_api_key or "",
+                    "openai_base_url": openai_base_url or "",
+                    "process_large_files": str(process_large_files).lower(),
+                    "use_turbo": str(use_turbo).lower(),
+                    "batch_size": str(batch_size)
+                })
+                response = requests.post(f"{API_BASE_URL}/campaign/run", files=files, data=data)
+            return response.json()
+    except Exception as e:
+        return {"error": f"Campaign API call failed: {str(e)}"}
+
+def call_campaign_retrieve_api(query: str, search_field: str = "all", k: int = 5, 
+                               include_complete_records: bool = True):
+    """Standard campaign retrieval"""
+    data = {
+        "query": query,
+        "search_field": search_field,
+        "k": k,
+        "include_complete_records": str(include_complete_records).lower()
+    }
+    response = requests.post(f"{API_BASE_URL}/campaign/retrieve", data=data)
+    return response.json()
+
+def call_campaign_smart_retrieval_api(query: str, search_field: str = "auto", k: int = 5,
+                                      include_complete_records: bool = True):
+    """SMART two-stage company retrieval"""
+    data = {
+        "query": query,
+        "search_field": search_field,
+        "k": k,
+        "include_complete_records": str(include_complete_records).lower()
+    }
+    response = requests.post(f"{API_BASE_URL}/campaign/smart_retrieval", data=data)
+    return response.json()
+
+def download_campaign_chunks():
+    """Download campaign chunks"""
+    response = requests.get(f"{API_BASE_URL}/campaign/export/chunks")
+    return response.content
+
+def download_campaign_embeddings():
+    """Download campaign embeddings"""
+    response = requests.get(f"{API_BASE_URL}/campaign/export/embeddings")
+    return response.content
+
+def download_campaign_preprocessed():
+    """Download campaign preprocessed data"""
+    response = requests.get(f"{API_BASE_URL}/campaign/export/preprocessed")
+    return response.content
+
 # ---------- Large File Helper Functions ----------
 def is_large_file(file_size: int, threshold_mb: int = 10) -> bool:
     """Check if file is considered large"""
@@ -720,27 +806,27 @@ def display_scrollable_chunk(result, chunk_index):
         # Use text_area for scrollable content but make it read-only
         content = result['content']
         
+        # Determine height based on content length
+        content_length = len(content)
+        if content_length > 2000:
+            height = 400  # Large content
+        elif content_length > 1000:
+            height = 300  # Medium content
+        else:
+            height = 200  # Small content
+        
         # Create a scrollable text area
         st.text_area(
             "Chunk Content",
             value=content,
-            height=300,
+            height=height,
             key=f"chunk_content_{chunk_index}",
             disabled=True,
             label_visibility="collapsed"
         )
-        
-        # Additional metadata if available
-        if 'metadata' in result:
-            st.markdown("""
-            <div class="chunk-header">
-                ℹ️ Metadata
-            </div>
-            """, unsafe_allow_html=True)
-            st.json(result['metadata'])
 
 # ---------- Streamlit App ----------
-st.set_page_config(page_title="I Chunk Optimizer", layout="wide", page_icon="")
+st.set_page_config(page_title="iChunk Optimizer", layout="wide", page_icon="")
 
 # Session state
 if "api_results" not in st.session_state:
@@ -778,10 +864,18 @@ if "use_turbo" not in st.session_state:
 if "batch_size" not in st.session_state:
     st.session_state.batch_size = 256
 
+# Campaign-specific session states
+if "campaign_results" not in st.session_state:
+    st.session_state.campaign_results = None
+if "campaign_use_smart_retrieval" not in st.session_state:
+    st.session_state.campaign_use_smart_retrieval = True
+if "campaign_chunk_method" not in st.session_state:
+    st.session_state.campaign_chunk_method = "record_based"
+
 # Sidebar with process tracking and system info
 with st.sidebar:
     st.markdown("""
-    <div style="background: linear-gradient(45deg, #FF8C00, #FFA500); padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+    <div style="background: #e75f33; padding: 5px; border-radius: 10px; margin-bottom: 20px;">
         <h2 style="color: white; text-align: center; margin: 0;">Process Tracker</h2>
     </div>
     """, unsafe_allow_html=True)
@@ -790,13 +884,6 @@ with st.sidebar:
     try:
         response = requests.get(f"{API_BASE_URL}/health", timeout=5)
         st.success("✅ API Connected")
-        
-        # Show capabilities
-        capabilities = get_capabilities_api()
-        if capabilities.get('large_file_support'):
-            st.info("🚀 3GB+ File Support")
-        if capabilities.get('performance_features', {}).get('turbo_mode'):
-            st.info("⚡ Turbo Mode Available")
             
     except:
         st.error("❌ API Not Connected")
@@ -824,13 +911,23 @@ with st.sidebar:
     # Process steps display
     st.markdown("### ⚙️ Processing Steps")
     
-    steps = [
-        ("preprocessing", "🧹 Preprocessing"),
-        ("chunking", "📦 Chunking"), 
-        ("embedding", "🤖 Embedding"),
-        ("storage", "💾 Vector DB"),
-        ("retrieval", "🔍 Retrieval")
-    ]
+    # Show different steps based on current mode
+    if st.session_state.current_mode == "deep":
+        steps = [
+            ("preprocessing", "🧹 Preprocessing"),
+            ("chunking", "📦 Chunking"), 
+            ("embedding", "🤖 Embedding"),
+            ("storage", "💾 Storage"),
+            ("retrieval", "🔍 Retrieval")
+        ]
+    else:
+        steps = [
+            ("preprocessing", "🧹 Preprocessing"),
+            ("chunking", "📦 Chunking"), 
+            ("embedding", "🤖 Embedding"),
+            ("storage", "💾 Vector DB"),
+            ("retrieval", "🔍 Retrieval")
+        ]
     
     for step_key, step_name in steps:
         status = st.session_state.process_status.get(step_key, "pending")
@@ -926,7 +1023,7 @@ with st.sidebar:
 
 # Mode selection
 st.markdown("## 🎯 Choose Processing Mode")
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     if st.button("⚡ Fast Mode", use_container_width=True, type="primary"):
         st.session_state.current_mode = "fast"
@@ -938,6 +1035,10 @@ with col2:
 with col3:
     if st.button("🔬 Deep Config Mode", use_container_width=True, type="primary"):
         st.session_state.current_mode = "deep"
+        st.session_state.process_status = {k: "pending" for k in st.session_state.process_status}
+with col4:
+    if st.button("🎯 Campaign Mode", use_container_width=True, type="primary"):
+        st.session_state.current_mode = "campaign"
         st.session_state.process_status = {k: "pending" for k in st.session_state.process_status}
 
 if st.session_state.current_mode:
@@ -1050,77 +1151,85 @@ if st.session_state.current_mode:
             else:
                 use_db_config = None
         
-        # FAST MODE DEFAULTS - No user configuration needed
-        # Auto-enable turbo mode and set batch size to 256
-        st.session_state.use_turbo = True
-        st.session_state.batch_size = 256
-        
-        # Display Fast Mode pipeline with FIXED string formatting
-        processing_type = "Parallel processing" if st.session_state.use_turbo else "Sequential processing"
-        
-        st.markdown(f"""
-        <div class="custom-card">
-            <div class="card-title">Fast Mode Pipeline</div>
-            <div class="card-content">
-                • Optimized preprocessing for speed<br>
-                • Semantic clustering chunking<br>
-                • paraphrase-MiniLM-L6-v2 embedding model<br>
-                • Batch embedding with size {st.session_state.batch_size}<br>
-                • {processing_type}<br>
-                • FAISS storage for fast retrieval<br>
-                • 3GB+ file support with disk streaming<br>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        run_enabled = (
+        # Check if data source is ready
+        data_source_ready = (
             (input_source == "📁 Upload CSV File" and st.session_state.get('temp_file_path') is not None) or
             (input_source == "🗄️ Database Import" and use_db_config is not None)
         )
         
-        if st.button("🚀 Run Fast Pipeline", type="primary", use_container_width=True, disabled=not run_enabled):
-            with st.spinner("Running Fast Mode pipeline..."):
-                try:
-                    if input_source == "📁 Upload CSV File":
-                        result = call_fast_api(
-                            st.session_state.temp_file_path,
-                            st.session_state.file_info["name"],
-                            "sqlite",
-                            use_db_config,
-                            st.session_state.process_large_files,
-                            st.session_state.use_turbo,
-                            st.session_state.batch_size
-                        )
-                    else:
-                        result = call_fast_api(
-                            None, None, "sqlite", use_db_config,
-                            st.session_state.process_large_files,
-                            st.session_state.use_turbo,
-                            st.session_state.batch_size
-                        )
-                    
-                    # Update process status
-                    for step in ["preprocessing", "chunking", "embedding", "storage"]:
-                        st.session_state.process_status[step] = "completed"
-                        st.session_state.process_timings[step] = "Completed"
-                    
-                    st.session_state.api_results = result
-                    # Show performance results
-                    if 'summary' in result:
-                        if result['summary'].get('large_file_processed'):
-                            st.success("✅ Large file processed efficiently with disk streaming!")
-                        elif result['summary'].get('turbo_mode'):
-                            st.success("⚡ Turbo mode completed successfully!")
+        # Only show configuration and run button if data source is ready
+        if data_source_ready:
+            st.success("✅ Data source ready! Configure your pipeline below.")
+        else:
+            st.info("📋 Please upload a CSV file or import from database to continue.")
+        
+        if data_source_ready:
+            # FAST MODE DEFAULTS - No user configuration needed
+            # Auto-enable turbo mode and set batch size to 256
+            st.session_state.use_turbo = True
+            st.session_state.batch_size = 256
+            
+            # Display Fast Mode pipeline with FIXED string formatting
+            processing_type = "Parallel processing" if st.session_state.use_turbo else "Sequential processing"
+            
+            st.markdown(f"""
+            <div class="custom-card">
+                <div class="card-title">Fast Mode Pipeline</div>
+                <div class="card-content">
+                    • Optimized preprocessing for speed<br>
+                    • Semantic clustering chunking<br>
+                    • paraphrase-MiniLM-L6-v2 embedding model<br>
+                    • Batch embedding with size {st.session_state.batch_size}<br>
+                    • {processing_type}<br>
+                    • FAISS storage for fast retrieval<br>
+                    • 3GB+ file support with disk streaming<br>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("🚀 Run Fast Pipeline", type="primary", use_container_width=True):
+                with st.spinner("Running Fast Mode pipeline..."):
+                    try:
+                        if input_source == "📁 Upload CSV File":
+                            result = call_fast_api(
+                                st.session_state.temp_file_path,
+                                st.session_state.file_info["name"],
+                                "sqlite",
+                                use_db_config,
+                                st.session_state.process_large_files,
+                                st.session_state.use_turbo,
+                                st.session_state.batch_size
+                            )
                         else:
-                            st.success("✅ Fast pipeline completed successfully!")
-                    
-                except Exception as e:
-                    st.error(f"❌ API Error: {str(e)}")
-                finally:
-                    # Clean up temporary file
-                    if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
-                        os.unlink(st.session_state.temp_file_path)
-                        st.session_state.temp_file_path = None
+                            result = call_fast_api(
+                                None, None, "sqlite", use_db_config,
+                                st.session_state.process_large_files,
+                                st.session_state.use_turbo,
+                                st.session_state.batch_size
+                            )
+                        
+                        # Update process status
+                        for step in ["preprocessing", "chunking", "embedding", "storage"]:
+                            st.session_state.process_status[step] = "completed"
+                            st.session_state.process_timings[step] = "Completed"
+                        
+                        st.session_state.api_results = result
+                        # Show performance results
+                        if 'summary' in result:
+                            if result['summary'].get('large_file_processed'):
+                                st.success("✅ Large file processed efficiently with disk streaming!")
+                            elif result['summary'].get('turbo_mode'):
+                                st.success("⚡ Turbo mode completed successfully!")
+                            else:
+                                st.success("✅ Fast pipeline completed successfully!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ API Error: {str(e)}")
+                    finally:
+                        # Clean up temporary file
+                        if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
+                            os.unlink(st.session_state.temp_file_path)
+                            st.session_state.temp_file_path = None
 
     elif st.session_state.current_mode == "config1":
         st.markdown("### ⚙️ Config-1 Mode Configuration")
@@ -1227,227 +1336,236 @@ if st.session_state.current_mode:
             else:
                 use_db_config = None
         
-        # Config-1 parameters (refactored into tabs)
-        st.markdown("#### ⚙️ Configuration Parameters")
-        tab_preprocess, tab_chunk, tab_embed, tab_store = st.tabs(["Preprocessing", "Chunking", "Embedding", "Storage & Retrieval"])
-
-        # Defaults to ensure variables exist for payload
-        chunk_method = st.session_state.get("config1_chunk", "recursive")
-        chunk_size = st.session_state.get("config1_size", 200)
-        overlap = st.session_state.get("config1_overlap", 10)
-        document_key_column = st.session_state.get("config1_document_key_column", "")
-        token_limit = st.session_state.get("config1_token_limit", 1000)
-        model_choice = st.session_state.get("config1_model", "paraphrase-MiniLM-L6-v2")
-        storage_choice = st.session_state.get("config1_storage", "faiss")
-        config1_retrieval_metric = st.session_state.get("config1_retrieval_metric", "cosine")
-
-        with tab_preprocess:
-            st.markdown("#### 🧹 Default Preprocessing")
-            st.markdown("""
-            **Default preprocessing is automatically applied and includes:**
-            - ✅ Header normalization (clean column names)
-            - ✅ HTML tag removal from text columns
-            - ✅ Text lowercasing and whitespace trimming
-            - ✅ Whitespace normalization (multiple spaces → single space)
-            """)
-
-        with tab_chunk:
-            st.markdown("#### 📦 Chunking")
-            chunk_method = st.selectbox("Chunking method", ["fixed", "recursive", "semantic", "document"], key="config1_chunk")
-            if chunk_method in ["fixed", "recursive"]:
-                if chunk_method == "fixed":
-                    st.info("Splits data into fixed-size chunks of characters with overlap")
-                elif chunk_method == "recursive":
-                    st.info("Splits key-value formatted lines with recursive separators and overlap")
-                
-                chunk_size = st.number_input(
-                    "Chunk Size (characters)", 
-                    min_value=50, 
-                    max_value=20000, 
-                    value=200, 
-                    step=50, 
-                    key="config1_size",
-                    help="Number of characters per chunk"
-                )
-                overlap = st.number_input(
-                    "Overlap (characters)", 
-                    min_value=0, 
-                    max_value=chunk_size-1 if chunk_size>0 else 0, 
-                    value=10, 
-                    key="config1_overlap",
-                    help="Number of characters to overlap between consecutive chunks"
-                )
-            elif chunk_method == "semantic":
-                st.info("Clusters rows semantically and concatenates each cluster as a chunk")
-                n_clusters = st.number_input(
-                    "Number of clusters", 
-                    min_value=2, 
-                    max_value=50, 
-                    value=10, 
-                    key="config1_n_clusters",
-                    help="Number of semantic clusters to create from the data"
-                )
-            elif chunk_method == "document":
-                st.info("Group by a key column and split by token limit (headers optional)")
-                
-                # Get column names from uploaded file for dropdown
-                available_columns = []
-                if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
-                    try:
-                        df_preview = pd.read_csv(st.session_state.temp_file_path, nrows=1)
-                        available_columns = df_preview.columns.tolist()
-                    except Exception:
-                        available_columns = []
-                
-                if available_columns:
-                    document_key_column = st.selectbox(
-                        "Key column", 
-                        available_columns, 
-                        key="config1_document_key_column",
-                        index=0,
-                        help="Column to use for grouping documents"
-                    )
-                else:
-                    document_key_column = st.text_input(
-                        "Key column (leave blank to use first column)",
-                        key="config1_document_key_column",
-                        value=str(document_key_column) if document_key_column else "",
-                        help="Column to use for grouping documents"
-                    )
-                token_limit = st.number_input(
-                    "Token limit per chunk",
-                    min_value=200,
-                    max_value=10000,
-                    value=1000,
-                    step=100,
-                    key="config1_token_limit",
-                    help="Maximum number of tokens per chunk"
-                )
-                # removed explanatory info text per request
-
-        with tab_embed:
-            st.markdown("#### 🤖 Embedding")
-            model_choice = st.selectbox("Embedding model", 
-                                      ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2"],
-                                      key="config1_model")
-            
-            # Show description based on selected model
-            if model_choice == "all-MiniLM-L6-v2":
-                st.info("General-purpose model optimized for various text understanding tasks")
-            elif model_choice == "paraphrase-MiniLM-L6-v2":
-                st.info("Specialized for semantic similarity and paraphrase detection")
-            st.markdown("#### ⚡ Performance")
-            st.session_state.use_turbo = st.checkbox(
-                "Enable Turbo Mode", 
-                value=st.session_state.use_turbo,
-                help="Faster processing with parallel operations",
-                key="config1_use_turbo"
-            )
-            st.session_state.batch_size = st.selectbox(
-                "Embedding Batch Size",
-                [32, 64, 128, 256],
-                index=3,  # Default to 256
-                help="Larger batches = faster processing (requires more memory)",
-                key="config1_batch_size"
-            )
-
-        with tab_store:
-            st.markdown("#### 💾 Storage")
-            storage_choice = st.selectbox(
-                "Vector storage", 
-                ["faiss", "chromadb"], 
-                key="config1_storage", 
-                index=["faiss","chromadb"].index(storage_choice) if storage_choice in ["faiss","chromadb"] else 0,
-                help="FAISS: High-performance vector search. ChromaDB: AI-focused database with metadata support"
-            )
-            st.markdown("#### 🔎 Retrieval Metric")
-            config1_retrieval_metric = st.selectbox(
-                "Similarity metric",
-                ["cosine", "dot", "euclidean"],
-                index=["cosine","dot","euclidean"].index(config1_retrieval_metric) if config1_retrieval_metric in ["cosine","dot","euclidean"] else 0,
-                key="config1_retrieval_metric",
-                help="cosine: Direction similarity (best for text). dot: Magnitude + direction. euclidean: Geometric distance"
-            )
-            
-            # Show description based on selected metric
-            if config1_retrieval_metric == "cosine":
-                st.info("📐 **Cosine Similarity**: Measures angle between vectors. Best for semantic text search. Range: -1 to +1")
-            elif config1_retrieval_metric == "dot":
-                st.info("🔗 **Dot Product**: Combines magnitude and direction. Good for aligned embeddings. Range: unbounded")
-            elif config1_retrieval_metric == "euclidean":
-                st.info("📏 **Euclidean Distance**: Measures straight-line distance. Good for geometric similarity. Range: 0 to +∞")
-            # removed explanatory captions per request
-        
-        # removed turbo mode success banner per request
-        
-        run_enabled = (
+        # Check if data source is ready
+        data_source_ready = (
             (input_source == "📁 Upload CSV File" and st.session_state.get('temp_file_path') is not None) or
             (input_source == "🗄️ Database Import" and use_db_config is not None)
         )
         
-        if st.button("🚀 Run Config-1 Pipeline", type="primary", use_container_width=True, disabled=not run_enabled):
-            with st.spinner("Running Config-1 pipeline..."):
-                try:
-                    config = {
-                        "chunk_method": chunk_method,
-                        "chunk_size": chunk_size if 'chunk_size' in locals() else 200,
-                        "overlap": overlap if 'overlap' in locals() else 10,
-                        "model_choice": model_choice,
-                        "storage_choice": storage_choice,
-                        "apply_default_preprocessing": True,  # Always True - compulsory preprocessing
-                    }
-                    if chunk_method == "semantic":
-                        if 'n_clusters' in locals() and n_clusters:
-                            config["n_clusters"] = int(n_clusters)
-                    elif chunk_method == "document":
-                        if 'document_key_column' in locals() and document_key_column:
-                            config["document_key_column"] = document_key_column
-                        if 'token_limit' in locals() and token_limit:
-                            config["token_limit"] = int(token_limit)
-                    # include retrieval metric for storage compatibility
-                    if 'config1_retrieval_metric' in locals() and config1_retrieval_metric:
-                        config["retrieval_metric"] = config1_retrieval_metric
+        # Only show configuration and run button if data source is ready
+        if data_source_ready:
+            st.success("✅ Data source ready! Configure your pipeline below.")
+        else:
+            st.info("📋 Please upload a CSV file or import from database to continue.")
+        
+        if data_source_ready:
+            # Config-1 parameters (refactored into tabs)
+            st.markdown("#### ⚙️ Configuration Parameters")
+            tab_preprocess, tab_chunk, tab_embed, tab_store = st.tabs(["Preprocessing", "Chunking", "Embedding", "Storage & Retrieval"])
+
+            # Defaults to ensure variables exist for payload
+            chunk_method = st.session_state.get("config1_chunk", "recursive")
+            chunk_size = st.session_state.get("config1_size", 200)
+            overlap = st.session_state.get("config1_overlap", 10)
+            document_key_column = st.session_state.get("config1_document_key_column", "")
+            token_limit = st.session_state.get("config1_token_limit", 1000)
+            model_choice = st.session_state.get("config1_model", "paraphrase-MiniLM-L6-v2")
+            storage_choice = st.session_state.get("config1_storage", "faiss")
+            config1_retrieval_metric = st.session_state.get("config1_retrieval_metric", "cosine")
+
+            with tab_preprocess:
+                st.markdown("#### 🧹 Default Preprocessing")
+                st.markdown("""
+                **Default preprocessing is automatically applied and includes:**
+                - ✅ Header normalization (clean column names)
+                - ✅ HTML tag removal from text columns
+                - ✅ Text lowercasing and whitespace trimming
+                - ✅ Whitespace normalization (multiple spaces → single space)
+                """)
+
+            with tab_chunk:
+                st.markdown("#### 📦 Chunking")
+                chunk_method = st.selectbox("Chunking method", ["fixed", "recursive", "semantic", "document"], key="config1_chunk")
+                if chunk_method in ["fixed", "recursive"]:
+                    if chunk_method == "fixed":
+                        st.info("Splits data into fixed-size chunks of characters with overlap")
+                    elif chunk_method == "recursive":
+                        st.info("Splits key-value formatted lines with recursive separators and overlap")
                     
-                    if input_source == "📁 Upload CSV File":
-                        result = call_config1_api(
-                            st.session_state.temp_file_path,
-                            st.session_state.file_info["name"],
-                            config,
-                            use_db_config,
-                            st.session_state.process_large_files,
-                            st.session_state.use_turbo,
-                            st.session_state.batch_size
+                    chunk_size = st.number_input(
+                        "Chunk Size (characters)", 
+                        min_value=50, 
+                        max_value=20000, 
+                        value=200, 
+                        step=50, 
+                        key="config1_size",
+                        help="Number of characters per chunk"
+                    )
+                    overlap = st.number_input(
+                        "Overlap (characters)", 
+                        min_value=0, 
+                        max_value=chunk_size-1 if chunk_size>0 else 0, 
+                        value=10, 
+                        key="config1_overlap",
+                        help="Number of characters to overlap between consecutive chunks"
+                    )
+                elif chunk_method == "semantic":
+                    st.info("Clusters rows semantically and concatenates each cluster as a chunk")
+                    n_clusters = st.number_input(
+                        "Number of clusters", 
+                        min_value=2, 
+                        max_value=50, 
+                        value=10, 
+                        key="config1_n_clusters",
+                        help="Number of semantic clusters to create from the data"
+                    )
+                elif chunk_method == "document":
+                    st.info("Group by a key column and split by token limit (headers optional)")
+                    
+                    # Get column names from uploaded file for dropdown
+                    available_columns = []
+                    if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
+                        try:
+                            df_preview = pd.read_csv(st.session_state.temp_file_path, nrows=1)
+                            available_columns = df_preview.columns.tolist()
+                        except Exception:
+                            available_columns = []
+                    
+                    if available_columns:
+                        document_key_column = st.selectbox(
+                            "Key column", 
+                            available_columns, 
+                            key="config1_document_key_column",
+                            index=0,
+                            help="Column to use for grouping documents"
                         )
                     else:
-                        result = call_config1_api(
-                            None, None, config, use_db_config,
-                            st.session_state.process_large_files,
-                            st.session_state.use_turbo,
-                            st.session_state.batch_size
+                        document_key_column = st.text_input(
+                            "Key column (leave blank to use first column)",
+                            key="config1_document_key_column",
+                            value=str(document_key_column) if document_key_column else "",
+                            help="Column to use for grouping documents"
                         )
-                    
-                    # Mark all as completed
-                    for step in ["preprocessing", "chunking", "embedding", "storage"]:
-                        st.session_state.process_status[step] = "completed"
-                        st.session_state.process_timings[step] = "Completed"
-                    
-                    st.session_state.api_results = result
-                    # Show performance results
-                    if 'summary' in result:
-                        if result['summary'].get('large_file_processed'):
-                            st.success("✅ Large file processed efficiently with disk streaming!")
-                        elif result['summary'].get('turbo_mode'):
-                            st.success("⚡ Turbo mode completed successfully!")
+                    token_limit = st.number_input(
+                        "Token limit per chunk",
+                        min_value=200,
+                        max_value=10000,
+                        value=1000,
+                        step=100,
+                        key="config1_token_limit",
+                        help="Maximum number of tokens per chunk"
+                    )
+                    # removed explanatory info text per request
+
+            with tab_embed:
+                st.markdown("#### 🤖 Embedding")
+                model_choice = st.selectbox("Embedding model", 
+                                          ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2"],
+                                          key="config1_model")
+                
+                # Show description based on selected model
+                if model_choice == "all-MiniLM-L6-v2":
+                    st.info("General-purpose model optimized for various text understanding tasks")
+                elif model_choice == "paraphrase-MiniLM-L6-v2":
+                    st.info("Specialized for semantic similarity and paraphrase detection")
+                st.markdown("#### ⚡ Performance")
+                st.session_state.use_turbo = st.checkbox(
+                    "Enable Turbo Mode", 
+                    value=st.session_state.use_turbo,
+                    help="Faster processing with parallel operations",
+                    key="config1_use_turbo"
+                )
+                st.session_state.batch_size = st.selectbox(
+                    "Embedding Batch Size",
+                    [32, 64, 128, 256],
+                    index=3,  # Default to 256
+                    help="Larger batches = faster processing (requires more memory)",
+                    key="config1_batch_size"
+                )
+
+            with tab_store:
+                st.markdown("#### 💾 Storage")
+                storage_choice = st.selectbox(
+                    "Vector storage", 
+                    ["faiss", "chromadb"], 
+                    key="config1_storage", 
+                    index=["faiss","chromadb"].index(storage_choice) if storage_choice in ["faiss","chromadb"] else 0,
+                    help="FAISS: High-performance vector search. ChromaDB: AI-focused database with metadata support"
+                )
+                st.markdown("#### 🔎 Retrieval Metric")
+                config1_retrieval_metric = st.selectbox(
+                    "Similarity metric",
+                    ["cosine", "dot", "euclidean"],
+                    index=["cosine","dot","euclidean"].index(config1_retrieval_metric) if config1_retrieval_metric in ["cosine","dot","euclidean"] else 0,
+                    key="config1_retrieval_metric",
+                    help="cosine: Direction similarity (best for text). dot: Magnitude + direction. euclidean: Geometric distance"
+                )
+                
+                # Show description based on selected metric
+                if config1_retrieval_metric == "cosine":
+                    st.info("📐 **Cosine Similarity**: Measures angle between vectors. Best for semantic text search. Range: -1 to +1")
+                elif config1_retrieval_metric == "dot":
+                    st.info("🔗 **Dot Product**: Combines magnitude and direction. Good for aligned embeddings. Range: unbounded")
+                elif config1_retrieval_metric == "euclidean":
+                    st.info("📏 **Euclidean Distance**: Measures straight-line distance. Good for geometric similarity. Range: 0 to +∞")
+                # removed explanatory captions per request
+            
+            # removed turbo mode success banner per request
+            
+            if st.button("🚀 Run Config-1 Pipeline", type="primary", use_container_width=True):
+                with st.spinner("Running Config-1 pipeline..."):
+                    try:
+                        config = {
+                            "chunk_method": chunk_method,
+                            "chunk_size": chunk_size if 'chunk_size' in locals() else 200,
+                            "overlap": overlap if 'overlap' in locals() else 10,
+                            "model_choice": model_choice,
+                            "storage_choice": storage_choice,
+                            "apply_default_preprocessing": True,  # Always True - compulsory preprocessing
+                        }
+                        if chunk_method == "semantic":
+                            if 'n_clusters' in locals() and n_clusters:
+                                config["n_clusters"] = int(n_clusters)
+                        elif chunk_method == "document":
+                            # Always set document_key_column, even if empty (backend will use fallback)
+                            if 'document_key_column' in locals():
+                                config["document_key_column"] = document_key_column if document_key_column else None
+                            if 'token_limit' in locals() and token_limit:
+                                config["token_limit"] = int(token_limit)
+                        # include retrieval metric for storage compatibility
+                        if 'config1_retrieval_metric' in locals() and config1_retrieval_metric:
+                            config["retrieval_metric"] = config1_retrieval_metric
+                        
+                        if input_source == "📁 Upload CSV File":
+                            result = call_config1_api(
+                                st.session_state.temp_file_path,
+                                st.session_state.file_info["name"],
+                                config,
+                                use_db_config,
+                                st.session_state.process_large_files,
+                                st.session_state.use_turbo,
+                                st.session_state.batch_size
+                            )
                         else:
-                            st.success("✅ Config-1 pipeline completed successfully!")
-                    
-                except Exception as e:
-                    st.error(f"❌ API Error: {str(e)}")
-                finally:
-                    # Clean up temporary file
-                    if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
-                        os.unlink(st.session_state.temp_file_path)
-                        st.session_state.temp_file_path = None
+                            result = call_config1_api(
+                                None, None, config, use_db_config,
+                                st.session_state.process_large_files,
+                                st.session_state.use_turbo,
+                                st.session_state.batch_size
+                            )
+                        
+                        # Mark all as completed
+                        for step in ["preprocessing", "chunking", "embedding", "storage"]:
+                            st.session_state.process_status[step] = "completed"
+                            st.session_state.process_timings[step] = "Completed"
+                        
+                        st.session_state.api_results = result
+                        # Show performance results
+                        if 'summary' in result:
+                            if result['summary'].get('large_file_processed'):
+                                st.success("✅ Large file processed efficiently with disk streaming!")
+                            elif result['summary'].get('turbo_mode'):
+                                st.success("⚡ Turbo mode completed successfully!")
+                            else:
+                                st.success("✅ Config-1 pipeline completed successfully!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ API Error: {str(e)}")
+                    finally:
+                        # Clean up temporary file
+                        if st.session_state.get('temp_file_path') and os.path.exists(st.session_state.temp_file_path):
+                            os.unlink(st.session_state.temp_file_path)
+                            st.session_state.temp_file_path = None
 
     elif st.session_state.current_mode == "deep":
         st.markdown("### 🔬 Deep Config Mode - Comprehensive Workflow")
@@ -1903,9 +2021,7 @@ if st.session_state.current_mode:
 
                 if filtered_profile.empty:
                     st.info("No null values detected; you can proceed to the next step.")
-                    if st.button("Proceed to Stop Words Removal", key="deep_proceed_no_nulls"):
-                        st.session_state.deep_config_step = 4
-                        st.rerun()
+                    
                 else:
                     st.write("📊 Null Analysis:")
                     st.dataframe(
@@ -2360,154 +2476,7 @@ if st.session_state.current_mode:
                 
                 st.divider()
                 
-                # Storage type selection (moved from Step 9)
-                st.subheader("Vector Storage Configuration")
-                storage_choice = st.radio(
-                    "Choose storage backend:", 
-                    ["ChromaDB", "FAISS"], 
-                    index=0, 
-                    key="deep_storage_choice_step6",
-                    help="ChromaDB: AI-focused database with metadata support. FAISS: High-performance vector search"
-                )
-                
-                # Metadata selection based on storage type
-                if storage_choice == "ChromaDB":
-                    st.subheader("Select metadata columns to store in ChromaDB")
-                    st.info("🔹 **ChromaDB**: Native metadata support with built-in filtering capabilities")
-                    store_metadata = st.checkbox(
-                        "Store metadata in ChromaDB", 
-                        value=st.session_state.deep_store_metadata_enabled, 
-                        help="Enable this to store selected metadata columns in ChromaDB for native filtering and retrieval",
-                        key="deep_store_metadata_checkbox"
-                    )
-                else:  # FAISS
-                    st.subheader("Select metadata columns to store in FAISS")
-                    st.info("🔹 **FAISS**: Enhanced metadata support with custom filtering implementation (faster performance)")
-                    store_metadata = st.checkbox(
-                        "Store metadata in FAISS", 
-                        value=st.session_state.deep_store_metadata_enabled, 
-                        help="Enable this to store selected metadata columns in FAISS for enhanced filtering and retrieval",
-                        key="deep_store_metadata_checkbox"
-                    )
-                
-                st.session_state.deep_store_metadata_enabled = store_metadata
-                
-                if store_metadata:
-                    # Fetch available columns and limits from API
-                    try:
-                        import requests
-                        response = requests.get(f"{API_BASE_URL}/deep_config/metadata_columns")
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data.get("status") == "success":
-                                numeric_cols = data["numeric_columns"]
-                                categorical_cols = data["categorical_columns"]
-                                max_numeric = data["max_numeric"]
-                                max_categorical = data["max_categorical"]
-                                numeric_samples = data["numeric_samples"]
-                                categorical_samples = data["categorical_samples"]
-                                total_cols = data["total_columns"]
-                                filtered_out_categorical = data.get("filtered_out_categorical", [])
-                                cardinality_threshold = data.get("cardinality_threshold", 50)
-                                
-                                # Show dataset summary
-                                st.info(f"📊 Dataset has {total_cols} columns: {len(numeric_cols)} numeric, {len(categorical_cols)} low-cardinality categorical")
-                                
-                                # Show filtered out columns
-                                if filtered_out_categorical:
-                                    st.warning(f"🔍 High-cardinality columns excluded (>{cardinality_threshold} unique values): {', '.join(filtered_out_categorical)}")
-                                
-                                # Show smart limits
-                                st.warning(f"💡 Smart limits: Max {max_numeric} numeric, {max_categorical} categorical columns")
-                                
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.subheader("📈 Numeric Columns")
-                                    st.caption("Store min/mean/max statistics per chunk")
-                                    
-                                    if numeric_cols:
-                                        # Create options with sample values
-                                        numeric_options = []
-                                        for col in numeric_cols:
-                                            sample = numeric_samples.get(col, "N/A")
-                                            numeric_options.append(f"{col} (sample: {sample})")
-                                        
-                                        selected_numeric_indices = st.multiselect(
-                                            "Select numeric columns:",
-                                            options=numeric_options,
-                                            max_selections=max_numeric,
-                                            key="deep_selected_numeric_indices"
-                                        )
-                                        
-                                        # Convert back to column names
-                                        selected_numeric_cols = []
-                                        for option in selected_numeric_indices:
-                                            col_name = option.split(" (sample:")[0]
-                                            selected_numeric_cols.append(col_name)
-                                        
-                                        st.caption(f"Selected: {len(selected_numeric_cols)}/{max_numeric} columns")
-                                    else:
-                                        st.info("No numeric columns detected.")
-                                        selected_numeric_cols = []
-                                
-                                with col2:
-                                    st.subheader("📊 Categorical Columns")
-                                    st.caption("Store mode (most frequent) value per chunk - Only low-cardinality columns shown")
-                                    
-                                    if categorical_cols:
-                                        # Create options with sample values
-                                        categorical_options = []
-                                        for col in categorical_cols:
-                                            sample = categorical_samples.get(col, "N/A")
-                                            categorical_options.append(f"{col} (sample: {sample})")
-                                        
-                                        selected_categorical_indices = st.multiselect(
-                                            "Select categorical columns:",
-                                            options=categorical_options,
-                                            max_selections=max_categorical,
-                                            key="deep_selected_categorical_indices"
-                                        )
-                                        
-                                        # Convert back to column names
-                                        selected_categorical_cols = []
-                                        for option in selected_categorical_indices:
-                                            col_name = option.split(" (sample:")[0]
-                                            selected_categorical_cols.append(col_name)
-                                        
-                                        st.caption(f"Selected: {len(selected_categorical_cols)}/{max_categorical} columns")
-                                    else:
-                                        st.info("No categorical columns detected.")
-                                        selected_categorical_cols = []
-                                
-                                # Performance warning
-                                total_selected = len(selected_numeric_cols) + len(selected_categorical_cols)
-                                if total_selected > 10:
-                                    st.warning("⚠️ Large metadata selection may impact storage performance")
-                                
-                                # Store selections in session state
-                                st.session_state.deep_meta_numeric_cols = selected_numeric_cols
-                                st.session_state.deep_meta_categorical_cols = selected_categorical_cols
-                                
-                            else:
-                                st.error(f"Failed to load metadata columns: {data.get('error', 'Unknown error')}")
-                                selected_numeric_cols = []
-                                selected_categorical_cols = []
-                        else:
-                            st.error("Failed to connect to API")
-                            selected_numeric_cols = []
-                            selected_categorical_cols = []
-                    except Exception as e:
-                        st.error(f"Error loading metadata columns: {str(e)}")
-                        selected_numeric_cols = []
-                        selected_categorical_cols = []
-                else:
-                    if storage_choice == "ChromaDB":
-                        st.info("Metadata storage is disabled. No metadata will be stored in ChromaDB.")
-                    else:
-                        st.info("Metadata storage is disabled. No metadata will be stored in FAISS.")
-                    st.session_state.deep_meta_numeric_cols = []
-                    st.session_state.deep_meta_categorical_cols = []
+                st.info("✅ **Text Normalization Complete!** Ready to proceed to chunking and metadata configuration.")
                 
                 # Add chunking section
                 st.divider()
@@ -2517,12 +2486,10 @@ if st.session_state.current_mode:
                     st.session_state.deep_config_step = 7
                     st.rerun()
 
-            # Step 7: Chunking Workflow
+            # Step 7: Chunking + Metadata Configuration
             if st.session_state.deep_config_step == 7:
                 st.divider()
-                st.subheader("CSV Chunking Process")
-                
-                st.sidebar.checkbox("Preprocessing Complete", value=True, disabled=True, key="deep_chunking_preprocessing_complete")
+                st.subheader("Chunking & Metadata Configuration")
                 
                 # Check if data is available
                 if st.session_state.deep_df.empty:
@@ -2532,13 +2499,16 @@ if st.session_state.current_mode:
                         st.rerun()
                     st.stop()
                 
-                st.subheader("Select Chunking Method")
-
+                st.sidebar.checkbox("Preprocessing Complete", value=True, disabled=True, key="deep_chunking_preprocessing_complete")
+                
+                # 1. CHUNKING CONFIGURATION
+                st.subheader("📝 Chunking Configuration")
+                
                 chunking_method = st.radio(
                     "Choose a chunking method:",
                     [
                         "Fixed Size",
-                        "Recursive",
+                        "Recursive", 
                         "Semantic",
                         "Document",
                     ],
@@ -2565,8 +2535,145 @@ if st.session_state.current_mode:
                     token_limit = st.number_input("Token limit per chunk", min_value=200, max_value=10000, value=2000, step=100, key="deep_document_token_limit")
                     preserve_headers = st.checkbox("Include headers in each chunk", value=True, key="deep_document_preserve_headers")
                 
-                if st.button("Apply Chunking Method", key="deep_apply_chunking"):
-                    with st.spinner("🔄 Applying chunking via API..."):
+                st.divider()
+                
+                # 2. METADATA CONFIGURATION
+                st.subheader("📊 Metadata Configuration")
+                
+                # Fetch available columns and limits from API
+                try:
+                    import requests
+                    response = requests.get(f"{API_BASE_URL}/deep_config/metadata_columns")
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("status") == "success":
+                            numeric_cols = data["numeric_columns"]
+                            categorical_cols = data["categorical_columns"]
+                            max_numeric = data["max_numeric"]
+                            max_categorical = data["max_categorical"]
+                            numeric_samples = data["numeric_samples"]
+                            categorical_samples = data["categorical_samples"]
+                            total_cols = data["total_columns"]
+                            filtered_out_categorical = data.get("filtered_out_categorical", [])
+                            cardinality_threshold = data.get("cardinality_threshold", 50)
+                            
+                            # Show dataset summary
+                            st.info(f"📊 Dataset has {total_cols} columns: {len(numeric_cols)} numeric, {len(categorical_cols)} low-cardinality categorical")
+                            
+                            # Show filtered out columns
+                            if filtered_out_categorical:
+                                st.warning(f"🔍 High-cardinality columns excluded (>{cardinality_threshold} unique values): {', '.join(filtered_out_categorical)}")
+                            
+                            # Show smart limits
+                            st.warning(f"💡 Smart limits: Max {max_numeric} numeric, {max_categorical} categorical columns")
+                            
+                            # Metadata enable/disable
+                            store_metadata = st.checkbox(
+                                "Enable metadata storage for enhanced filtering",
+                                value=False,
+                                help="Store selected columns as metadata for each chunk to enable filtered search",
+                                key="deep_store_metadata_checkbox"
+                            )
+                            
+                            if store_metadata:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.subheader("📈 Numeric Columns")
+                                    st.caption("Store min/mean/max statistics per chunk")
+                                    
+                                    if numeric_cols:
+                                        # Create options with sample values
+                                        numeric_options = []
+                                        for col in numeric_cols:
+                                            sample = numeric_samples.get(col, "N/A")
+                                            numeric_options.append(f"{col} (sample: {sample})")
+                                        
+                                        selected_numeric_indices = st.multiselect(
+                                            "Select numeric columns:",
+                                            options=numeric_options,
+                                            max_selections=max_numeric,
+                                            key="deep_selected_numeric_indices"
+                                        )
+                                        
+                                        # Convert back to column names
+                                        selected_numeric_cols = []
+                                        for idx in selected_numeric_indices:
+                                            col_name = idx.split(" (sample:")[0]
+                                            selected_numeric_cols.append(col_name)
+                                        
+                                        st.session_state.deep_meta_numeric_cols = selected_numeric_cols
+                                        
+                                        if selected_numeric_cols:
+                                            st.success(f"✅ Selected {len(selected_numeric_cols)} numeric columns: {', '.join(selected_numeric_cols)}")
+                                        else:
+                                            st.info("No numeric columns selected")
+                                    else:
+                                        st.info("No numeric columns found in dataset")
+                                        st.session_state.deep_meta_numeric_cols = []
+                                
+                                with col2:
+                                    st.subheader("📊 Categorical Columns")
+                                    st.caption("Store mode (most common) values per chunk")
+                                    
+                                    if categorical_cols:
+                                        # Create options with sample values
+                                        categorical_options = []
+                                        for col in categorical_cols:
+                                            sample = categorical_samples.get(col, "N/A")
+                                            categorical_options.append(f"{col} (sample: {sample})")
+                                        
+                                        selected_categorical_indices = st.multiselect(
+                                            "Select categorical columns:",
+                                            options=categorical_options,
+                                            max_selections=max_categorical,
+                                            key="deep_selected_categorical_indices"
+                                        )
+                                        
+                                        # Convert back to column names
+                                        selected_categorical_cols = []
+                                        for idx in selected_categorical_indices:
+                                            col_name = idx.split(" (sample:")[0]
+                                            selected_categorical_cols.append(col_name)
+                                        
+                                        st.session_state.deep_meta_categorical_cols = selected_categorical_cols
+                                        
+                                        if selected_categorical_cols:
+                                            st.success(f"✅ Selected {len(selected_categorical_cols)} categorical columns: {', '.join(selected_categorical_cols)}")
+                                        else:
+                                            st.info("No categorical columns selected")
+                                    else:
+                                        st.info("No categorical columns found in dataset")
+                                        st.session_state.deep_meta_categorical_cols = []
+                                
+                                # Show metadata summary
+                                total_selected = len(st.session_state.deep_meta_numeric_cols) + len(st.session_state.deep_meta_categorical_cols)
+                                if total_selected > 0:
+                                    st.success(f"🎯 **Total metadata columns selected: {total_selected}**")
+                                    st.info("💡 These columns will be aggregated per chunk and stored for enhanced search filtering")
+                                else:
+                                    st.warning("⚠️ No metadata columns selected. Chunks will be stored without metadata.")
+                            else:
+                                st.session_state.deep_meta_numeric_cols = []
+                                st.session_state.deep_meta_categorical_cols = []
+                                st.info("💡 Metadata storage disabled. Chunks will be stored without metadata.")
+                            
+                        else:
+                            st.error(f"❌ Failed to fetch metadata columns: {data.get('error', 'Unknown error')}")
+                    else:
+                        st.error("❌ Failed to connect to metadata API")
+                except Exception as e:
+                    st.error(f"❌ Error fetching metadata columns: {str(e)}")
+                    st.session_state.deep_meta_numeric_cols = []
+                    st.session_state.deep_meta_categorical_cols = []
+                
+                st.divider()
+                
+                # 3. APPLY CHUNKING CONFIGURATION
+                st.subheader("🚀 Apply Chunking Configuration")
+                
+                if st.button("Apply Chunking & Metadata Configuration", key="deep_apply_chunking_config"):
+                    with st.spinner("🔄 Applying chunking and metadata configuration..."):
                         try:
                             # Prepare chunking parameters based on method
                             if chunking_method == "Fixed Size":
@@ -2574,7 +2681,7 @@ if st.session_state.current_mode:
                                     "method": "fixed",
                                     "chunk_size": int(chunk_size),
                                     "overlap": int(overlap),
-                                    "store_metadata": st.session_state.deep_store_metadata_enabled,
+                                    "store_metadata": store_metadata,
                                     "selected_numeric_columns": st.session_state.deep_meta_numeric_cols,
                                     "selected_categorical_columns": st.session_state.deep_meta_categorical_cols
                                 }
@@ -2583,7 +2690,7 @@ if st.session_state.current_mode:
                                     "method": "recursive",
                                     "chunk_size": int(chunk_size),
                                     "overlap": int(overlap),
-                                    "store_metadata": st.session_state.deep_store_metadata_enabled,
+                                    "store_metadata": store_metadata,
                                     "selected_numeric_columns": st.session_state.deep_meta_numeric_cols,
                                     "selected_categorical_columns": st.session_state.deep_meta_categorical_cols
                                 }
@@ -2591,7 +2698,7 @@ if st.session_state.current_mode:
                                 chunk_params = {
                                     "method": "semantic",
                                     "n_clusters": int(n_clusters),
-                                    "store_metadata": st.session_state.deep_store_metadata_enabled,
+                                    "store_metadata": store_metadata,
                                     "selected_numeric_columns": st.session_state.deep_meta_numeric_cols,
                                     "selected_categorical_columns": st.session_state.deep_meta_categorical_cols
                                 }
@@ -2601,7 +2708,7 @@ if st.session_state.current_mode:
                                     "key_column": key_column,
                                     "token_limit": int(token_limit),
                                     "preserve_headers": preserve_headers,
-                                    "store_metadata": st.session_state.deep_store_metadata_enabled,
+                                    "store_metadata": store_metadata,
                                     "selected_numeric_columns": st.session_state.deep_meta_numeric_cols,
                                     "selected_categorical_columns": st.session_state.deep_meta_categorical_cols
                                 }
@@ -2613,32 +2720,19 @@ if st.session_state.current_mode:
                             else:
                                 st.success(f"✅ Successfully created {result.get('total_chunks', 'N/A')} chunks!")
                                 st.info(f"📊 **Method**: {chunking_method}")
+                                if store_metadata:
+                                    total_meta = len(st.session_state.deep_meta_numeric_cols) + len(st.session_state.deep_meta_categorical_cols)
+                                    st.info(f"📊 **Metadata**: {total_meta} columns selected")
                                 
                                 # Update session state with API results
                                 st.session_state.deep_chunking_result = {
                                     "chunks": result.get('chunks', []),
-                                    "metadata": result.get('metadata', []),
-                                    "method": chunking_method.lower().replace(" ", "_"),
-                                    "total_chunks": result.get('total_chunks', 0)
+                                    "total_chunks": result.get('total_chunks', 0),
+                                    "method": chunking_method,
+                                    "metadata_enabled": store_metadata
                                 }
                                 
-                                # Add download button for chunks
-                                st.markdown("---")
-                                st.subheader("📥 Download Chunks")
-                                if st.button("📄 Download Chunks CSV", key="deep_download_chunks"):
-                                    try:
-                                        chunks_data = download_deep_config_chunks()
-                                        filename = "chunks.csv"
-                                        st.download_button(
-                                            label="⬇️ Download Chunks",
-                                            data=chunks_data,
-                                            file_name=filename,
-                                            mime="text/csv",
-                                            use_container_width=True
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Download failed: {str(e)}")
-                                
+                                # Move to next step
                                 st.session_state.deep_config_step = 8
                                 st.rerun()
                         
@@ -2646,7 +2740,7 @@ if st.session_state.current_mode:
                             st.error(f"❌ API Error: {str(e)}")
 
                 # Back button
-                if st.button("Back to Metadata Selection", key="deep_back_to_metadata"):
+                if st.button("Back to Normalization", key="deep_back_to_normalization"):
                     st.session_state.deep_chunking_result = None
                     st.session_state.deep_embedding_result = None
                     st.session_state.deep_config_step = 6
@@ -2654,11 +2748,34 @@ if st.session_state.current_mode:
 
             # Step 8: Embedding Generation
             if st.session_state.deep_config_step == 8:
-                st.sidebar.checkbox("Preprocessing Complete", value=True, disabled=True, key="deep_embedding_preprocessing_complete")
-                st.sidebar.checkbox("Chunking Complete", value=True, disabled=True, key="deep_embedding_chunking_complete")
-                
+                st.divider()
                 st.subheader("Generate Embeddings")
                 
+                st.sidebar.checkbox("Chunking Complete", value=True, disabled=True, key="deep_embedding_chunking_complete")
+                
+                # Check if chunks are available
+                if st.session_state.deep_chunking_result is None:
+                    st.error("❌ No chunks available for embedding. Please run chunking first.")
+                    if st.button("Back to Chunking", key="deep_back_to_chunking_no_chunks"):
+                        st.session_state.deep_config_step = 7
+                        st.rerun()
+                    st.stop()
+                
+                # Show chunking summary
+                chunking_result = st.session_state.deep_chunking_result
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Chunks", chunking_result.get('total_chunks', 0))
+                with col2:
+                    st.metric("Method", chunking_result.get('method', 'N/A'))
+                with col3:
+                    metadata_enabled = chunking_result.get('metadata_enabled', False)
+                    st.metric("Metadata", "Enabled" if metadata_enabled else "Disabled")
+                
+                st.divider()
+                
+                # Embedding model selection
+                st.subheader("🤖 Embedding Model Selection")
                 available_models = [
                     "all-MiniLM-L6-v2",
                     "paraphrase-MiniLM-L6-v2"
@@ -2669,63 +2786,61 @@ if st.session_state.current_mode:
                     key="deep_embedding_model"
                 )
                 
+                # Model information
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Model", model_choice)
                 with col2:
                     st.metric("Type", "Local")
                 
+                # Model descriptions
+                if model_choice == "all-MiniLM-L6-v2":
+                    st.info("🌐 **General-purpose model** optimized for various text understanding tasks")
+                elif model_choice == "paraphrase-MiniLM-L6-v2":
+                    st.info("🎯 **Specialized model** for semantic similarity and paraphrase detection")
+                
+                st.divider()
+                
                 # Configuration options
-                st.subheader("Configuration")
+                st.subheader("⚙️ Configuration")
                 batch_size = st.selectbox("Batch Size", options=[32, 64, 128, 256], index=0, key="deep_embedding_batch_size", help="Larger batch sizes are faster but use more memory")
                 use_parallel = st.checkbox("Use parallel encoding (local models)", value=True, key="deep_use_parallel")
                 
-                if st.button("Generate Embeddings", key="deep_generate_embeddings"):
+                st.divider()
+                
+                # Generate embeddings
+                st.subheader("🚀 Generate Embeddings")
+                if st.button("Generate Embeddings", key="deep_generate_embeddings", type="primary"):
                     with st.spinner("🔄 Generating embeddings via API..."):
                         try:
-                            # Prepare embedding parameters
                             embed_params = {
                                 "model_name": model_choice,
-                                "batch_size": int(batch_size),
-                                "use_parallel": bool(use_parallel)
+                                "batch_size": batch_size,
+                                "use_parallel": use_parallel
                             }
-                            
                             
                             result = call_deep_config_embed_api(embed_params)
                             
                             if "error" in result:
                                 st.error(f"❌ Embedding generation failed: {result['error']}")
                             else:
-                                st.success(f"✅ Successfully generated embeddings for {result.get('total_chunks', 'N/A')} chunks!")
+                                st.success(f"✅ Successfully generated embeddings for {result.get('total_embeddings', 'N/A')} chunks!")
                                 st.info(f"📊 **Model**: {model_choice}")
-                                st.info(f"📊 **Vector Dimension**: {result.get('vector_dimension', 'N/A')}")
+                                st.info(f"📊 **Dimensions**: {result.get('embedding_dimensions', 'N/A')}")
+                                st.info(f"📊 **Batch Size**: {batch_size}")
+                                st.info(f"📊 **Parallel Processing**: {'Enabled' if use_parallel else 'Disabled'}")
                                 
                                 # Update session state with API results
                                 st.session_state.deep_embedding_result = {
-                                    'model_used': model_choice,
-                                    'total_chunks': result.get('total_chunks', 0),
-                                    'vector_dimension': result.get('vector_dimension', 0),
-                                    'embeddings': result.get('embeddings', []),
-                                    'chunk_texts': result.get('chunk_texts', []),
+                                    "embeddings": result.get('embeddings', []),
+                                    "total_embeddings": result.get('total_embeddings', 0),
+                                    "model": model_choice,
+                                    "dimensions": result.get('embedding_dimensions', 0),
+                                    "batch_size": batch_size,
+                                    "use_parallel": use_parallel
                                 }
                                 
-                                # Add download button for embeddings
-                                st.markdown("---")
-                                st.subheader("📥 Download Embeddings")
-                                if st.button("📄 Download Embeddings JSON", key="deep_download_embeddings"):
-                                    try:
-                                        embeddings_data = download_deep_config_embeddings()
-                                        filename = "embeddings.json"
-                                        st.download_button(
-                                            label="⬇️ Download Embeddings",
-                                            data=embeddings_data,
-                                            file_name=filename,
-                                            mime="application/json",
-                                            use_container_width=True
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Download failed: {str(e)}")
-                                
+                                # Move to next step
                                 st.session_state.deep_config_step = 9
                                 st.rerun()
                         
@@ -2738,160 +2853,758 @@ if st.session_state.current_mode:
                     st.session_state.deep_config_step = 7
                     st.rerun()
 
-            # Step 9: Storage & Retrieval
+            # Step 9: Storage Configuration & Execution
             if st.session_state.deep_config_step == 9:
+                st.divider()
+                st.subheader("Vector Storage Configuration")
+                
                 st.sidebar.checkbox("Preprocessing Complete", value=True, disabled=True, key="deep_storage_preprocessing_complete")
                 st.sidebar.checkbox("Chunking Complete", value=True, disabled=True, key="deep_storage_chunking_complete")
                 st.sidebar.checkbox("Embeddings Generated", value=True, disabled=True, key="deep_storage_embeddings_generated")
                 
-                st.subheader("Vector Storage & Retrieval")
-                
-                # Use storage choice from Step 6 with option to change
-                storage_choice = st.session_state.get("deep_storage_choice_step6", "ChromaDB")
-                
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.info(f"Selected storage backend: **{storage_choice}** (configured in Step 6)")
-                with col2:
-                    if st.button("Change Storage", help="Go back to Step 6 to change storage type"):
-                        st.session_state.deep_config_step = 6
+                # Check if embeddings are available
+                if st.session_state.deep_embedding_result is None:
+                    st.error("❌ No embeddings available for storage. Please generate embeddings first.")
+                    if st.button("Back to Embedding", key="deep_back_to_embedding_no_embeddings"):
+                        st.session_state.deep_config_step = 8
                         st.rerun()
+                    st.stop()
+                
+                # Show embedding summary
+                embedding_result = st.session_state.deep_embedding_result
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Embeddings", embedding_result.get('total_embeddings', 0))
+                with col2:
+                    st.metric("Model", embedding_result.get('model', 'N/A'))
+                with col3:
+                    st.metric("Dimensions", embedding_result.get('dimensions', 'N/A'))
+                
+                st.divider()
+                
+                # Storage backend selection
+                st.subheader("🗄️ Storage Backend Selection")
+                storage_choice = st.radio(
+                    "Choose storage backend:", 
+                    ["ChromaDB", "FAISS"], 
+                    help="ChromaDB: Better metadata filtering. FAISS: Better performance",
+                    key="deep_storage_choice_step9"
+                )
+                
+                # Show recommendations based on metadata
+                metadata_enabled = st.session_state.deep_chunking_result.get('metadata_enabled', False) if st.session_state.deep_chunking_result else False
+                if metadata_enabled:
+                    total_meta = len(st.session_state.deep_meta_numeric_cols) + len(st.session_state.deep_meta_categorical_cols)
+                    if total_meta > 3:
+                        st.info("💡 **ChromaDB recommended** for complex metadata filtering")
+                    else:
+                        st.info("💡 **FAISS recommended** for better performance with simple metadata")
+                else:
+                    st.info("💡 **FAISS recommended** for pure performance without metadata")
+                
+                st.divider()
+                
+                # Storage configuration
+                st.subheader("⚙️ Storage Configuration")
                 
                 if storage_choice == "ChromaDB":
                     default_collection = f"csv_chunks__{uploaded_file.name.replace('.csv','')}" if uploaded_file else "csv_chunks"
                     collection_name = st.text_input("Collection Name", value=default_collection, key="deep_collection_name")
-                    st.session_state.collection_name = collection_name
+                    st.info("📊 **ChromaDB**: AI-focused database with metadata support and filtering capabilities")
                 else:
-                    st.session_state.collection_name = "csv_chunks"
+                    st.info("⚡ **FAISS**: High-performance vector search with optimized similarity computation")
 
-                # Retrieval metric selection (shown below storage selection)
+                # Retrieval metric selection
+                st.subheader("🔍 Retrieval Configuration")
                 retrieval_metric = st.selectbox(
                     "Retrieval similarity metric",
-                    ["cosine", "dot", "euclidean"],
+                    ["cosine", "euclidean", "dot"],
                     index=0,
                     key="deep_retrieval_metric",
-                    help="cosine: Direction similarity (best for text). dot: Magnitude + direction. euclidean: Geometric distance"
+                    help="Choose the similarity metric for vector search"
                 )
                 
-                # Show description based on selected metric
+                # Show metric descriptions
                 if retrieval_metric == "cosine":
                     st.info("📐 **Cosine Similarity**: Measures angle between vectors. Best for semantic text search. Range: -1 to +1")
-                elif retrieval_metric == "dot":
-                    st.info("🔗 **Dot Product**: Combines magnitude and direction. Good for aligned embeddings. Range: unbounded")
                 elif retrieval_metric == "euclidean":
-                    st.info("📏 **Euclidean Distance**: Measures straight-line distance. Good for geometric similarity. Range: 0 to +∞")
-                # removed deep config captions per request (Config-1 only requested, keeping deep captions optional)
-
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("Store Embeddings", key="deep_store_embeddings"):
-                        with st.spinner("🔄 Storing embeddings via API..."):
-                            try:
-                                if st.session_state.deep_embedding_result is None:
-                                    st.error("No embeddings to store. Please generate embeddings first.")
-                                else:
-                                    # Prepare storage parameters
-                                    storage_type_mapping = {
-                                        "ChromaDB": "chroma",
-                                        "FAISS": "faiss"
-                                    }
-                                    store_params = {
-                                        "storage_type": storage_type_mapping[storage_choice],
-                                        "retrieval_metric": retrieval_metric
-                                    }
-                                    
-                                    if storage_choice == "ChromaDB":
-                                        store_params["collection_name"] = collection_name
-                                    
-                                    result = call_deep_config_store_api(store_params)
-                                    
-                                    if "error" in result:
-                                        st.error(f"❌ Storage failed: {result['error']}")
-                                    else:
-                                        if storage_choice == "ChromaDB":
-                                            st.success(f"✅ Stored {result.get('total_vectors', 'N/A')} vectors in ChromaDB collection '{collection_name}'.")
-                                        else:
-                                            st.success(f"✅ Stored {result.get('total_vectors', 'N/A')} vectors in FAISS index.")
-                                        st.info(f"📊 **Storage Type**: {storage_choice}")
-                                        st.info(f"📊 **Retrieval Metric**: {retrieval_metric}")
-                            except Exception as e:
-                                st.error(f"❌ API Error: {str(e)}")
+                    st.info("📏 **Euclidean Distance**: Measures straight-line distance between vectors. Range: 0 to +∞")
+                elif retrieval_metric == "dot":
+                    st.info("🔗 **Dot Product**: Direct vector multiplication. Range: -∞ to +∞")
                 
-                with col_b:
-                    st.info("🔍 **Retrieval Ready**")
-                    st.markdown("""
-                    <div class="custom-card">
-                        <div class="card-title">Vector Database Ready</div>
-                        <div class="card-content">
-                            Your embeddings are stored and ready for semantic search.<br>
-                            Use the **Semantic Search** section below to query your data.
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
+                st.divider()
+                
+                # Store embeddings
+                st.subheader("🚀 Store Embeddings")
+                if st.button("Store Embeddings", key="deep_store_embeddings", type="primary"):
+                    with st.spinner("🔄 Storing embeddings via API..."):
+                        try:
+                            # Prepare storage parameters
+                            storage_type_mapping = {
+                                "ChromaDB": "chroma",
+                                "FAISS": "faiss"
+                            }
+                            store_params = {
+                                "storage_type": storage_type_mapping[storage_choice],
+                                "retrieval_metric": retrieval_metric
+                            }
+                            
+                            if storage_choice == "ChromaDB":
+                                store_params["collection_name"] = collection_name
+                            
+                            result = call_deep_config_store_api(store_params)
+                            
+                            if "error" in result:
+                                st.error(f"❌ Storage failed: {result['error']}")
+                            else:
+                                if storage_choice == "ChromaDB":
+                                    st.success(f"✅ Stored {result.get('total_vectors', 'N/A')} vectors in ChromaDB collection '{collection_name}'.")
+                                else:
+                                    st.success(f"✅ Stored {result.get('total_vectors', 'N/A')} vectors in FAISS index.")
+                                
+                                st.info(f"📊 **Storage Type**: {storage_choice}")
+                                st.info(f"📊 **Retrieval Metric**: {retrieval_metric}")
+                                
+                                # Store storage configuration in session state
+                                st.session_state.deep_storage_config = {
+                                    "storage_type": storage_choice,
+                                    "retrieval_metric": retrieval_metric,
+                                    "collection_name": collection_name if storage_choice == "ChromaDB" else "faiss_index"
+                                }
+                                
+                                # Mark as ready for retrieval
+                                st.session_state.deep_storage_complete = True
+                                st.success("🔍 **Storage Complete - Ready for Retrieval**")
+                                
+                                # Move to next step
+                                st.session_state.deep_config_step = 10
+                                st.rerun()
+                        
+                        except Exception as e:
+                            st.error(f"❌ API Error: {str(e)}")
+                
                 # Back button
                 if st.button("Back to Embedding", key="deep_back_to_embedding"):
                     st.session_state.deep_config_step = 8
                     st.rerun()
 
-                # Complete process button
-                if st.button("Complete Deep Config Process", key="deep_complete_process"):
-                    st.balloons()
-                    st.success("🎉 Deep Config process completed successfully!")
-                    st.info("You can now use the vector database for semantic search and retrieval.")
+            # Step 10: Semantic Search & Retrieval
+            if st.session_state.deep_config_step == 10:
+                st.divider()
+                st.subheader("🔍 Semantic Search & Retrieval")
+                
+                st.sidebar.checkbox("Preprocessing Complete", value=True, disabled=True, key="deep_retrieval_preprocessing_complete")
+                st.sidebar.checkbox("Chunking Complete", value=True, disabled=True, key="deep_retrieval_chunking_complete")
+                st.sidebar.checkbox("Embeddings Generated", value=True, disabled=True, key="deep_retrieval_embeddings_generated")
+                st.sidebar.checkbox("Storage Complete", value=True, disabled=True, key="deep_retrieval_storage_complete")
+                
+                # Check if storage is complete
+                if not st.session_state.get("deep_storage_complete", False):
+                    st.error("❌ Storage not complete. Please complete storage first.")
+                    if st.button("Back to Storage", key="deep_back_to_storage_no_storage"):
+                        st.session_state.deep_config_step = 9
+                        st.rerun()
+                    st.stop()
+                
+                # Show storage summary
+                storage_config = st.session_state.get("deep_storage_config", {})
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Storage Type", storage_config.get('storage_type', 'N/A'))
+                with col2:
+                    st.metric("Retrieval Metric", storage_config.get('retrieval_metric', 'N/A'))
+                with col3:
+                    st.metric("Collection/Index", storage_config.get('collection_name', 'N/A'))
+                
+                st.divider()
+                
+                # Success message
+                st.success("🎉 **Deep Config Process Complete!**")
+                st.info("""
+                **Your vector database is ready for semantic search!**
+                
+                ✅ Data preprocessed and cleaned  
+                ✅ Chunks created with metadata  
+                ✅ Embeddings generated  
+                ✅ Vectors stored in database  
+                ✅ Ready for semantic search  
+                """)
+                
+                st.divider()
+                
+                # Semantic search interface
+                st.subheader("🔍 Semantic Search Interface")
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    query = st.text_input("Enter your search query:", placeholder="Search for similar content...", key="deep_semantic_query")
+                with col2:
+                    k = st.slider("Number of results:", min_value=1, max_value=20, value=5, key="deep_semantic_k")
+                
+                if st.button("Search", key="deep_semantic_search", type="primary"):
+                    if query:
+                        with st.spinner("🔍 Searching..."):
+                            try:
+                                # Call retrieval API
+                                search_params = {
+                                    "query": query,
+                                    "k": k
+                                }
+                                
+                                import requests
+                                response = requests.post(f"{API_BASE_URL}/retrieve", data=search_params)
+                                
+                                if response.status_code == 200:
+                                    results = response.json()
+                                    if "results" in results:
+                                        st.success(f"✅ Found {len(results['results'])} results")
+                                        
+                                        # Display results
+                                        for i, result in enumerate(results['results']):
+                                            with st.expander(f"Result {i+1} (Similarity: {result.get('similarity', 0):.3f})"):
+                                                content = result.get('content', 'No content')
+                                                
+                                                # Determine height based on content length
+                                                content_length = len(content)
+                                                if content_length > 2000:
+                                                    height = 400  # Large content
+                                                elif content_length > 1000:
+                                                    height = 300  # Medium content
+                                                else:
+                                                    height = 200  # Small content
+                                                
+                                                # Create scrollable content area
+                                                st.text_area(
+                                                    "Content:",
+                                                    value=content,
+                                                    height=height,
+                                                    key=f"deep_result_content_{i}",
+                                                    disabled=True,
+                                                    label_visibility="collapsed"
+                                                )
+                                    else:
+                                        st.error("No results found")
+                                else:
+                                    st.error("Search failed")
+                                    
+                            except Exception as e:
+                                st.error(f"Search error: {str(e)}")
+                    else:
+                        st.warning("Please enter a search query")
+                
+                st.divider()
+                
+                # Download Results Section
+                st.subheader("💾 Download Results")
+                st.info("Download your processed data, chunks, and embeddings for further analysis or integration.")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown("""
+                    <div class="download-section">
+                        <div class="download-title">📄 Download Preprocessed Data</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("📄 Export Preprocessed CSV", use_container_width=True, key="deep_download_preprocessed_final"):
+                        try:
+                            csv_data = download_deep_config_preprocessed()
+                            filename = "preprocessed_data.csv"
+                            st.download_button(
+                                label="⬇️ Download Preprocessed Data",
+                                data=csv_data,
+                                file_name=filename,
+                                mime="text/csv",
+                                use_container_width=True,
+                                key="deep_download_preprocessed_btn"
+                            )
+                        except Exception as e:
+                            st.error(f"Download failed: {str(e)}")
+                
+                with col2:
+                    st.markdown("""
+                    <div class="download-section">
+                        <div class="download-title">📥 Download Chunks</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("📄 Export Chunks as CSV", use_container_width=True, key="deep_download_chunks_final"):
+                        try:
+                            chunks_data = download_deep_config_chunks()
+                            filename = "chunks.csv"
+                            st.download_button(
+                                label="⬇️ Download Chunks",
+                                data=chunks_data,
+                                file_name=filename,
+                                mime="text/csv",
+                                use_container_width=True,
+                                key="deep_download_chunks_btn"
+                            )
+                        except Exception as e:
+                            st.error(f"Download failed: {str(e)}")
+                
+                with col3:
+                    st.markdown("""
+                    <div class="download-section">
+                        <div class="download-title">📥 Download Embeddings</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("🔢 Export Embeddings as JSON", use_container_width=True, key="deep_download_embeddings_final"):
+                        try:
+                            embeddings_data = download_deep_config_embeddings()
+                            filename = "embeddings.json"
+                            st.download_button(
+                                label="⬇️ Download Embeddings",
+                                data=embeddings_data,
+                                file_name=filename,
+                                mime="application/json",
+                                use_container_width=True,
+                                key="deep_download_embeddings_btn"
+                            )
+                        except Exception as e:
+                            st.error(f"Download failed: {str(e)}")
+                
+                st.divider()
+                
+                
+
+                # Back button
+                if st.button("Back to Storage", key="deep_back_to_storage"):
+                    st.session_state.deep_config_step = 9
+                    st.rerun()
+
+# End of Deep Config section
+
+    # ✅ NEW: Campaign Mode Section
+    elif st.session_state.current_mode == "campaign":
+        st.markdown("### 🎯 Campaign Mode Configuration")
+        st.info("📊 Specialized for media campaign & contact data with smart company retrieval")
+        
+        # Input source selection
+        input_source = st.radio("Select Input Source:", 
+                               ["📁 Upload CSV File", "🗄️ Database Import"], 
+                               key="campaign_input_source")
+        
+        # FILE UPLOAD PATH
+        if input_source == "📁 Upload CSV File":
+            uploaded_file = st.file_uploader("Choose a CSV file with campaign data", 
+                                            type=["csv"], 
+                                            key="campaign_file_upload")
+            
+            if uploaded_file is not None:
+                with st.spinner("🔄 Streaming file to disk..."):
+                    temp_path, file_info = handle_file_upload(uploaded_file)
+                    st.session_state.temp_file_path = temp_path
+                    st.session_state.file_info = file_info
+                
+                st.success(f"✅ **{uploaded_file.name}** loaded! ({file_info['size']})")
+                
+                # Preview
+                try:
+                    df = pd.read_csv(temp_path, nrows=10)
+                    st.markdown("#### 👁️ Data Preview")
+                    st.dataframe(df.head(5), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Preview error: {str(e)}")
+            
+            use_db_config = None
+        
+        # DATABASE IMPORT PATH
+        else:
+            st.markdown("#### 🗄️ Database Configuration")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                db_type = st.selectbox("Database Type", ["mysql", "postgresql"], 
+                                      key="campaign_db_type")
+                host = st.text_input("Host", "localhost", key="campaign_host")
+                port = st.number_input("Port", 1, 65535, 
+                                      3306 if db_type == "mysql" else 5432, 
+                                      key="campaign_port")
+            
+            with col2:
+                username = st.text_input("Username", key="campaign_username")
+                password = st.text_input("Password", type="password", key="campaign_password")
+                database = st.text_input("Database", key="campaign_database")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔌 Test Connection", key="campaign_test_conn", 
+                           use_container_width=True):
+                    with st.spinner("Testing connection..."):
+                        res = db_test_connection_api({
+                            "db_type": db_type, "host": host, "port": str(port),
+                            "username": username, "password": password, "database": database
+                        })
+                        if res.get("status") == "success":
+                            st.success("✅ Connection successful!")
+                        else:
+                            st.error(f"❌ {res.get('message', 'Unknown error')}")
+            
+            with col2:
+                if st.button("📋 List Tables", key="campaign_list_tables", 
+                           use_container_width=True):
+                    with st.spinner("Fetching tables..."):
+                        res = db_list_tables_api({
+                            "db_type": db_type, "host": host, "port": str(port),
+                            "username": username, "password": password, "database": database
+                        })
+                        tables = res.get("tables", [])
+                        st.session_state["campaign_db_tables"] = tables
+                        if tables:
+                            st.success(f"✅ Found {len(tables)} tables")
+                            st.info(f"📋 {', '.join(tables)}")
+            
+            tables = st.session_state.get("campaign_db_tables", [])
+            if tables:
+                table_name = st.selectbox("Select Table", tables, key="campaign_table_select")
+                use_db_config = {
+                    "use_db": True, "db_type": db_type, "host": host, "port": port,
+                    "username": username, "password": password, 
+                    "database": database, "table_name": table_name
+                }
+                st.info(f"🔧 Selected: `{database}.{table_name}`")
+            else:
+                use_db_config = None
+        
+        # CONFIGURATION OPTIONS
+        st.markdown("### ⚙️ Campaign Processing Configuration")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            chunk_method = st.selectbox("Chunking Method", 
+                                       ["record_based", "company_based", "source_based", 
+                                        "semantic_clustering", "document_based"],
+                                       key="campaign_chunk_method",
+                                       help="How to group campaign data")
+            
+            if chunk_method == "record_based":
+                chunk_size = st.slider("Records per Chunk", 1, 20, 5,
+                                      help="Number of contact records per chunk")
+            elif chunk_method == "company_based":
+                st.info("Groups contacts by company name")
+                chunk_size = st.slider("Max records per company", 5, 50, 10)
+            elif chunk_method == "source_based":
+                st.info("Groups contacts by lead source")
+                chunk_size = st.slider("Max records per source", 5, 30, 8)
+            elif chunk_method == "semantic_clustering":
+                st.info("AI-powered grouping of similar contacts")
+                chunk_size = st.slider("Number of clusters", 3, 20, 10)
+            else:  # document_based
+                st.info("Groups contacts by document key column")
+                chunk_size = 1
+            
+            model_choice = st.selectbox("Embedding Model", 
+                                       ["paraphrase-MiniLM-L6-v2", "all-MiniLM-L6-v2"],
+                                       key="campaign_model")
+        
+        with col2:
+            storage_choice = st.selectbox("Vector Storage", 
+                                         ["faiss", "chroma"],
+                                         key="campaign_storage")
+            
+            preserve_structure = st.checkbox("Preserve Record Structure", value=True,
+                                           help="Keep complete contact records together")
+            
+            st.session_state.use_turbo = st.checkbox("Enable Turbo Mode", 
+                                                   value=True,
+                                                   help="Parallel processing",
+                                                   key="campaign_turbo")
+            
+            st.session_state.batch_size = st.slider("Batch Size", 
+                                                  64, 512, 256, 32,
+                                                  help="Embedding batch size",
+                                                  key="campaign_batch")
+        
+        # Document key column selection
+        document_key_column = None
+        if chunk_method == "document_based":
+            if st.session_state.get('temp_file_path'):
+                try:
+                    df_cols = pd.read_csv(st.session_state.temp_file_path, nrows=0).columns.tolist()
+                    document_key_column = st.selectbox("Document Grouping Column", df_cols,
+                                                      help="Column for grouping records")
+                except Exception as e:
+                    st.error(f"Error reading columns: {str(e)}")
+        
+        # Display pipeline info
+        st.markdown(f"""
+        <div class="custom-card">
+            <div class="card-title">🎯 Campaign Pipeline</div>
+            <div class="card-content">
+                • Specialized campaign preprocessing<br>
+                • {chunk_method} chunking (size: {chunk_size})<br>
+                • {model_choice} embedding model<br>
+                • {storage_choice.upper()} vector storage<br>
+                • {'✅' if preserve_structure else '❌'} Record structure preserved<br>
+                • {'⚡ Parallel' if st.session_state.use_turbo else 'Sequential'} processing<br>
+                • Batch size: {st.session_state.batch_size}<br>
+                • 🎯 Smart company retrieval ready
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # RUN BUTTON
+        run_enabled = (
+            (input_source == "📁 Upload CSV File" and st.session_state.get('temp_file_path')) or
+            (input_source == "🗄️ Database Import" and use_db_config)
+        )
+        
+        if st.button("🚀 Run Campaign Pipeline", type="primary", 
+                    use_container_width=True, disabled=not run_enabled):
+            with st.spinner("Running Campaign pipeline..."):
+                try:
+                    st.session_state.process_status["preprocessing"] = "running"
+                    
+                    config = {
+                        "chunk_method": chunk_method,
+                        "chunk_size": chunk_size,
+                        "model_choice": model_choice,
+                        "storage_choice": storage_choice,
+                        "preserve_record_structure": preserve_structure
+                    }
+                    
+                    if chunk_method == "document_based" and document_key_column:
+                        config["document_key_column"] = document_key_column
+                    
+                    if input_source == "📁 Upload CSV File":
+                        result = call_campaign_api(
+                            st.session_state.temp_file_path,
+                            st.session_state.file_info["name"],
+                            config,
+                            use_db_config,
+                            False,  # use_openai
+                            None,   # openai_api_key
+                            None,   # openai_base_url
+                            st.session_state.process_large_files,
+                            st.session_state.use_turbo,
+                            st.session_state.batch_size
+                        )
+                    else:
+                        result = call_campaign_api(
+                            None, None, config, use_db_config,
+                            False, None, None,
+                            st.session_state.process_large_files,
+                            st.session_state.use_turbo,
+                            st.session_state.batch_size
+                        )
+                    
+                    if 'error' in result:
+                        st.error(f"❌ Pipeline Error: {result['error']}")
+                    else:
+                        for step in ["preprocessing", "chunking", "embedding", "storage"]:
+                            st.session_state.process_status[step] = "completed"
+                        
+                        st.session_state.api_results = result
+                        st.session_state.campaign_results = result
+                        
+                        if 'summary' in result:
+                            st.success("✅ Campaign pipeline completed successfully!")
+                            if result['summary'].get('media_campaign_processed'):
+                                st.success("🎯 Campaign data optimized for retrieval!")
+                        
+                        st.session_state.process_status["retrieval"] = "completed"
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                finally:
+                    if st.session_state.get('temp_file_path'):
+                        try:
+                            os.unlink(st.session_state.temp_file_path)
+                            st.session_state.temp_file_path = None
+                        except:
+                            pass
+
+# Removed duplicate semantic search section - Fast/Config-1 modes use the Vector Retrieval Section below
 
 
-# Vector Retrieval Section with Scrollable Chunks
-# Show retrieval UI for Fast Mode, Config-1 Mode, or Deep Config Mode when ready
+# Vector Retrieval Section with Clean UI (Deep Config Style)
+# Show retrieval UI for Fast Mode, Config-1 Mode, Deep Config Mode, or Campaign Mode when ready
 retrieval_ready = (
     (st.session_state.api_results and st.session_state.api_results.get('summary', {}).get('retrieval_ready')) or
-    (st.session_state.current_mode == "deep" and st.session_state.deep_config_step == 9 and st.session_state.deep_embedding_result is not None)
+    (st.session_state.current_mode == "deep" and st.session_state.deep_config_step == 9 and st.session_state.deep_embedding_result is not None) or
+    (st.session_state.current_mode == "campaign" and st.session_state.campaign_results)
 )
 
 if retrieval_ready:
     st.markdown("---")
-    st.markdown("## 🔍 Semantic Search (Vector DB)")
-    st.markdown("Search for similar content using semantic similarity")
+    st.markdown("## 🔍 Semantic Search & Retrieval")
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        vector_query = st.text_input("Enter semantic search query:", placeholder="Search for similar content...", key="vector_query")
+        vector_query = st.text_input("Enter your search query:", placeholder="Search for similar content...", key="vector_query")
     with col2:
-        k = st.slider("Top K results", 1, 10, 3, key="vector_k")
+        k = st.slider("Number of results:", min_value=1, max_value=20, value=5, key="vector_k")
     
-    if vector_query:
-        with st.spinner("Searching..."):
-            try:
-                st.session_state.process_status["retrieval"] = "running"
-                
-                # Use appropriate API based on mode
-                if st.session_state.current_mode == "deep":
-                    # For Deep Config, use the metadata-aware retrieval API
-                    retrieval_result = call_retrieve_api(vector_query, k)
-                else:
-                    # For Fast Mode and Config-1, use standard retrieval API
-                    retrieval_result = call_retrieve_api(vector_query, k)
-                
-                st.session_state.process_status["retrieval"] = "completed"
-                st.session_state.retrieval_results = retrieval_result
-                
-                if "error" in retrieval_result:
-                    st.error(f"Retrieval error: {retrieval_result['error']}")
-                else:
-                    st.success(f"✅ Found {len(retrieval_result['results'])} results")
+    if st.button("Search", key="vector_search", type="primary"):
+        if vector_query:
+            with st.spinner("🔍 Searching..."):
+                try:
+                    st.session_state.process_status["retrieval"] = "running"
                     
-                    # Display each result with scrollable chunk content
-                    for i, result in enumerate(retrieval_result['results']):
-                        display_scrollable_chunk(result, i)
+                    # Use appropriate API based on mode
+                    if st.session_state.current_mode == "campaign":
+                        # For Campaign Mode, use SMART retrieval if enabled
+                        if st.session_state.campaign_use_smart_retrieval:
+                            retrieval_result = call_campaign_smart_retrieval_api(vector_query, "auto", k, True)
+                        else:
+                            retrieval_result = call_campaign_retrieve_api(vector_query, "all", k, True)
+                    elif st.session_state.current_mode == "deep":
+                        # For Deep Config, use the metadata-aware retrieval API
+                        retrieval_result = call_retrieve_api(vector_query, k)
+                    else:
+                        # For Fast Mode and Config-1, use standard retrieval API
+                        retrieval_result = call_retrieve_api(vector_query, k)
+                    
+                    st.session_state.process_status["retrieval"] = "completed"
+                    st.session_state.retrieval_results = retrieval_result
+                    
+                    if "error" in retrieval_result:
+                        st.error(f"Retrieval error: {retrieval_result['error']}")
+                    else:
+                        st.success(f"✅ Found {len(retrieval_result['results'])} results")
                         
-            except Exception as e:
-                st.error(f"Retrieval error: {str(e)}")
+                        # Display each result with clean UI (Deep Config style)
+                        for i, result in enumerate(retrieval_result['results']):
+                            with st.expander(f"Result {i+1} (Similarity: {result.get('similarity', 0):.3f})"):
+                                content = result.get('content', 'No content')
+                                
+                                # Determine height based on content length
+                                content_length = len(content)
+                                if content_length > 2000:
+                                    height = 400  # Large content
+                                elif content_length > 1000:
+                                    height = 300  # Medium content
+                                else:
+                                    height = 200  # Small content
+                                
+                                # Create scrollable content area
+                                st.text_area(
+                                    "Content:",
+                                    value=content,
+                                    height=height,
+                                    key=f"vector_result_content_{i}",
+                                    disabled=True,
+                                    label_visibility="collapsed"
+                                )
+                        
+                except Exception as e:
+                    st.error(f"Retrieval error: {str(e)}")
+        else:
+            st.warning("Please enter a search query")
+
+# Campaign-specific retrieval section
+if st.session_state.current_mode == "campaign" and st.session_state.campaign_results:
+    st.markdown("---")
+    st.markdown("## 🎯 Campaign Data Retrieval")
+    
+    col1, col2, col3 = st.columns([3, 2, 1])
+    
+    with col1:
+        campaign_query = st.text_area("Search Campaign Data:", 
+                                   placeholder="Search companies, leads, campaigns...",
+                                   height=100,
+                                   key="campaign_query")
+    
+    with col2:
+        search_field = st.selectbox("Search Field:", 
+                                   ["all", "company", "lead_source", 
+                                    "lead_status", "campaign_source"],
+                                   key="campaign_search_field")
+        k = st.number_input("Results:", 1, 50, 5, key="campaign_k")
+    
+    with col3:
+        use_smart = st.checkbox("Smart Retrieval", value=True,
+                              help="Two-stage: exact company match → semantic")
+        include_complete = st.checkbox("Complete Records", value=True)
+        
+        if st.button("🔍 Search", use_container_width=True, key="campaign_search_btn"):
+            if campaign_query:
+                with st.spinner("Searching..."):
+                    try:
+                        if use_smart:
+                            result = call_campaign_smart_retrieval_api(
+                                campaign_query, search_field, k, include_complete
+                            )
+                        else:
+                            result = call_campaign_retrieve_api(
+                                campaign_query, search_field, k, include_complete
+                            )
+                        
+                        st.session_state.campaign_results = result
+                        
+                        if 'error' not in result:
+                            st.success(f"✅ Found {len(result.get('results', []))} matches!")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+    
+    # Display campaign results
+    if st.session_state.campaign_results and 'error' not in st.session_state.campaign_results:
+        results = st.session_state.campaign_results
+        
+        # Show retrieval method info
+        retrieval_method = results.get('retrieval_method', 'standard')
+        if retrieval_method == 'company_keyword_matching':
+            exact_matches = results.get('exact_matches', 0)
+            partial_matches = results.get('partial_matches', 0)
+            total_matches = results.get('total_matches', 0)
+            
+            st.success(f"🎯 **SMART Company Retrieval Results**")
+            st.info(f"**Exact Matches:** {exact_matches} | **Partial Matches:** {partial_matches} | **Total:** {total_matches}")
+        else:
+            st.success(f"✅ Found {len(results.get('results', []))} campaign matches!")
+        
+        # Display results
+        for i, result_data in enumerate(results.get('results', [])):
+            similarity = result_data.get('similarity', 0.0)
+            similarity_color = "#28a745" if similarity > 0.7 else "#ffc107" if similarity > 0.4 else "#dc3545"
+            
+            expander_title = f"👤 Contact Group #{i+1} (Similarity: {similarity:.3f})"
+            if result_data.get('match_type'):
+                expander_title += f" | {result_data['match_type'].upper()}"
+            
+            with st.expander(expander_title, expanded=False):
+                # Header with match information
+                header_html = f"""
+                <div style="background: #2d2d2d; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 6px solid {similarity_color};">
+                    <strong>Rank:</strong> {i+1} | 
+                    <strong>Similarity:</strong> {similarity:.3f}
+                """
+                
+                if result_data.get('match_type'):
+                    header_html += f""" | <strong>Match Type:</strong> {result_data['match_type']}"""
+                
+                if result_data.get('company_matched'):
+                    header_html += f""" | <strong>Company:</strong> {result_data['company_matched']}"""
+                
+                header_html += "</div>"
+                
+                st.markdown(header_html, unsafe_allow_html=True)
+                
+                # Show complete records if available
+                complete_records = result_data.get('complete_record', [])
+                if complete_records:
+                    for record_idx, record in enumerate(complete_records):
+                        st.markdown(f"**Record {record_idx + 1}:**")
+                        st.json(record)
+                        if record_idx < len(complete_records) - 1:
+                            st.markdown("---")
+                else:
+                    # Fallback to content display
+                    content = result_data.get('content', 'No content available')
+                    st.text_area(
+                        "Chunk Content",
+                        value=content,
+                        height=300,
+                        key=f"campaign_chunk_content_{i}",
+                        disabled=True,
+                        label_visibility="collapsed"
+                    )
 
 # Export Section
-# Show export UI for Fast Mode, Config-1 Mode, or Deep Config Mode when ready
+# Show export UI for Fast Mode, Config-1 Mode, and Campaign Mode when ready (Deep Config has its own download section in Step 10)
 export_ready = (
-    st.session_state.api_results or
-    (st.session_state.current_mode == "deep" and st.session_state.deep_config_step == 9 and st.session_state.deep_embedding_result is not None)
+    st.session_state.api_results and st.session_state.current_mode not in ["deep"]
 )
 
 if export_ready:
@@ -2910,6 +3623,8 @@ if export_ready:
             try:
                 if st.session_state.current_mode == "deep":
                     csv_data = download_deep_config_preprocessed()
+                elif st.session_state.current_mode == "campaign":
+                    csv_data = download_campaign_preprocessed()
                 else:
                     csv_data = download_preprocessed()
                 filename = "preprocessed_data.csv"
@@ -2932,7 +3647,10 @@ if export_ready:
         # All modes now export as CSV
         if st.button("📄 Export Chunks as CSV", use_container_width=True):
             try:
-                chunks_content = download_file("/export/chunks", "chunks.csv")
+                if st.session_state.current_mode == "campaign":
+                    chunks_content = download_campaign_chunks()
+                else:
+                    chunks_content = download_file("/export/chunks", "chunks.csv")
                 st.download_button(
                     label="⬇️ Download Chunks",
                     data=chunks_content,
@@ -2952,7 +3670,10 @@ if export_ready:
         # All modes now export as JSON
         if st.button("🔢 Export Embeddings as JSON", use_container_width=True):
             try:
-                embeddings_content = download_embeddings_text()
+                if st.session_state.current_mode == "campaign":
+                    embeddings_content = download_campaign_embeddings()
+                else:
+                    embeddings_content = download_embeddings_text()
                 st.download_button(
                     label="⬇️ Download Embeddings",
                     data=embeddings_content,
@@ -2967,7 +3688,14 @@ if export_ready:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: var(--ev-colors-tertiaryText); font-size: 0.85em; padding: 15px 0;">
-    <p>📦 Chunking Optimizer v2.0 • FastAPI + Streamlit • 3GB+ File Support • Performance Optimized</p>
-    <p><strong>🚀 Enhanced with Turbo Mode & Parallel Processing • 📜 Scrollable Chunk Display</strong></p>
+    <div style="margin-bottom: 5px;">
+        <strong>iChunk Optimizer</strong>
+    </div>
+    <div style="margin-bottom: 8px; font-size: 0.8em;">
+        Advanced Text Segmentation & Intelligent Data Processing Platform
+    </div>
+    <div style="font-size: 0.75em; color: var(--ev-colors-secondaryText);">
+        © 2025 iChunk Optimizer. All rights reserved.
+    </div>
 </div>
 """, unsafe_allow_html=True)

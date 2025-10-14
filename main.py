@@ -42,7 +42,26 @@ from backend import (
 )
 import backend
 
-app = FastAPI(title="Chunking Optimizer API", version="2.0")
+# Campaign Mode imports
+from backend_campaign import (
+    run_campaign_pipeline,
+    campaign_retrieve,
+    campaign_smart_retrieval,
+    campaign_export_chunks,
+    campaign_export_embeddings,
+    campaign_export_preprocessed,
+    campaign_state,
+    campaign_process_large_file,
+    campaign_process_file_direct,
+    serialize_data,
+    connect_mysql as campaign_connect_mysql,
+    connect_postgresql as campaign_connect_postgresql,
+    get_table_list as campaign_get_table_list,
+    import_table_to_dataframe as campaign_import_table,
+    can_load_file as campaign_can_load_file
+)
+
+app = FastAPI(title="Chunking Optimizer API", version="1.0")
 
 def clear_deep_config_state():
     """Clear Deep Config data variables (not model/store)"""
@@ -600,7 +619,7 @@ async def deep_config_null_handle(
                 return {"error": "No data available. Run preprocessing first."}
         
         from backend import apply_null_strategies_enhanced
-        df_processed = apply_null_strategies_enhanced(backend.current_df, strategies)
+        df_processed = apply_null_strategies_enhanced(backend.current_df, strategies, add_flags=False)
         
         # Update global state
         backend.current_df = df_processed.copy()
@@ -943,16 +962,23 @@ async def deep_config_store(
 ):
     """Step 8: Store embeddings"""
     try:
+        print(f"DEBUG: deep_config_store called with storage_type: {storage_type}, collection_name: {collection_name}")
+        
         if backend.current_chunks is None or backend.current_embeddings is None:
             return {"error": "No chunks or embeddings available. Run chunking and embedding first."}
         
         from backend import store_chroma_enhanced, store_faiss_enhanced
         
+        print(f"DEBUG: About to store with storage_type: {storage_type}")
+        
         if storage_type == "chroma":
+            print("DEBUG: Using ChromaDB storage")
             store = store_chroma_enhanced(backend.current_chunks, backend.current_embeddings, collection_name, backend.current_metadata)
         elif storage_type == "faiss":
+            print("DEBUG: Using FAISS storage")
             store = store_faiss_enhanced(backend.current_chunks, backend.current_embeddings, backend.current_metadata)
         else:
+            print(f"DEBUG: Unknown storage type: {storage_type}")
             return {"error": f"Unknown storage type: {storage_type}"}
         
         # Store in global state
@@ -962,6 +988,7 @@ async def deep_config_store(
         save_state()
         
         print(f"Deep Config storage completed: {storage_type}, store keys: {list(store.keys())}")
+        print(f"DEBUG: Final store type: {store.get('type', 'unknown')}")
         
         return {
             "status": "success",
@@ -971,6 +998,7 @@ async def deep_config_store(
         }
     
     except Exception as e:
+        print(f"DEBUG: Exception in deep_config_store: {str(e)}")
         return {"error": str(e)}
 
 @app.post("/retrieve_with_metadata")
@@ -1388,7 +1416,7 @@ async def root():
     system_info = get_system_info()
     return {
         "message": "Chunking Optimizer API is running", 
-        "version": "2.0",
+        "version": "1.0",
         "large_file_support": True,
         "max_recommended_file_size": system_info.get("max_recommended_file_size", "N/A"),
         "openai_compatible": True,
@@ -1410,6 +1438,7 @@ async def capabilities():
             "/v1/chat/completions", 
             "/v1/retrieve"
         ],
+        "processing_modes": ["fast", "config1", "deep", "campaign"],
         "large_file_support": True,
         "max_file_size_recommendation": "3GB+",
         "supported_embedding_models": [
@@ -1417,6 +1446,12 @@ async def capabilities():
             "paraphrase-MiniLM-L6-v2", 
             "text-embedding-ada-002"
         ],
+        "chunking_methods": {
+            "fast": ["semantic_clustering"],
+            "config1": ["fixed_size", "recursive", "document_based", "semantic_clustering"],
+            "deep": ["fixed_size", "recursive", "document_based", "semantic_clustering"],
+            "campaign": ["record_based", "company_based", "source_based", "semantic_clustering", "document_based"]
+        },
         "batch_processing": True,
         "memory_optimized": True,
         "database_large_table_support": True,
@@ -1425,7 +1460,37 @@ async def capabilities():
             "parallel_processing": True,
             "optimized_batch_size": 256,
             "caching_system": True
+        },
+        "campaign_features": {
+            "smart_company_retrieval": True,
+            "field_detection": True,
+            "contextual_display": True,
+            "complete_records": True,
+            "specialized_preprocessing": True
         }
+    }
+
+@app.get("/debug/storage")
+async def debug_storage():
+    """Debug current storage state"""
+    from backend import debug_storage_state, current_store_info, current_chunks, current_embeddings
+    import logging
+    import os
+    
+    # Set up logging to capture debug output
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    debug_storage_state()
+    
+    return {
+        "storage_info": current_store_info,
+        "chunks_count": len(current_chunks) if current_chunks else 0,
+        "embeddings_shape": current_embeddings.shape if current_embeddings is not None else None,
+        "faiss_files_exist": {
+            "index": os.path.exists("faiss_store/index.faiss"),
+            "data": os.path.exists("faiss_store/data.pkl")
+        } if current_store_info and current_store_info.get("type") == "faiss" else None
     }
 
 # ---------------------------
@@ -2018,6 +2083,214 @@ async def internal_db_import(db_type, host, port, username, password, database, 
                                  "config1", use_turbo, batch_size)
     except Exception as e:
         return {"error": str(e)}
+
+# ---------------------------
+# 🎯 CAMPAIGN MODE ENDPOINTS
+# ---------------------------
+
+@app.post("/campaign/run")
+async def run_campaign_endpoint(
+    file: Optional[UploadFile] = File(None),
+    db_type: Optional[str] = Form(None),
+    host: Optional[str] = Form(None),
+    port: Optional[str] = Form(None),
+    username: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    database: Optional[str] = Form(None),
+    table_name: Optional[str] = Form(None),
+    chunk_method: str = Form("record_based"),
+    chunk_size: str = Form("5"),
+    model_choice: str = Form("paraphrase-MiniLM-L6-v2"),
+    storage_choice: str = Form("faiss"),
+    use_openai: str = Form("false"),
+    openai_api_key: Optional[str] = Form(None),
+    openai_base_url: Optional[str] = Form(None),
+    process_large_files: str = Form("true"),
+    use_turbo: str = Form("true"),
+    batch_size: str = Form("256"),
+    preserve_record_structure: str = Form("true"),
+    document_key_column: Optional[str] = Form(None)
+):
+    """Campaign mode pipeline - specialized for media campaign data"""
+    try:
+        use_openai_bool = use_openai.lower() == "true"
+        process_large_bool = process_large_files.lower() == "true"
+        use_turbo_bool = use_turbo.lower() == "true"
+        preserve_bool = preserve_record_structure.lower() == "true"
+        batch_size_int = int(batch_size)
+        chunk_size_int = int(chunk_size)
+        
+        # Database import path
+        if all([db_type, host, port, username, database, table_name]):
+            if db_type == "mysql":
+                conn = campaign_connect_mysql(host, int(port), username, password, database)
+            elif db_type == "postgresql":
+                conn = campaign_connect_postgresql(host, int(port), username, password, database)
+            else:
+                raise HTTPException(status_code=400, detail="Unsupported database type")
+            
+            df = campaign_import_table(conn, table_name)
+            conn.close()
+            
+            file_info = {
+                "filename": f"{table_name}_from_{database}",
+                "file_size": len(df),
+                "upload_time": "Database import",
+                "location": "Database",
+                "data_type": "campaign"
+            }
+            
+            result = run_campaign_pipeline(
+                df,
+                chunk_method=chunk_method,
+                chunk_size=chunk_size_int,
+                model_choice=model_choice,
+                storage_choice=storage_choice,
+                file_info=file_info,
+                use_openai=use_openai_bool,
+                openai_api_key=openai_api_key,
+                openai_base_url=openai_base_url,
+                use_turbo=use_turbo_bool,
+                batch_size=batch_size_int,
+                preserve_record_structure=preserve_bool,
+                document_key_column=document_key_column
+            )
+            
+            return {"mode": "campaign", "summary": result}
+        
+        # File upload path
+        elif file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
+                shutil.copyfileobj(file.file, tmp_file)
+                temp_path = tmp_file.name
+            
+            file_info = {
+                "filename": file.filename,
+                "file_size": os.path.getsize(temp_path),
+                "upload_time": "File upload",
+                "location": "Temporary storage",
+                "data_type": "campaign"
+            }
+            
+            # Large file handling
+            if process_large_bool and not campaign_can_load_file(file_info['file_size']):
+                result = campaign_process_file_direct(
+                    temp_path,
+                    chunk_method=chunk_method,
+                    chunk_size=chunk_size_int,
+                    model_choice=model_choice,
+                    storage_choice=storage_choice,
+                    use_openai=use_openai_bool,
+                    openai_api_key=openai_api_key,
+                    openai_base_url=openai_base_url,
+                    use_turbo=use_turbo_bool,
+                    batch_size=batch_size_int,
+                    document_key_column=document_key_column
+                )
+                os.unlink(temp_path)
+                return {"mode": "campaign", "summary": result, "large_file_processed": True}
+            else:
+                df = pd.read_csv(temp_path)
+                os.unlink(temp_path)
+                
+                result = run_campaign_pipeline(
+                    df,
+                    chunk_method=chunk_method,
+                    chunk_size=chunk_size_int,
+                    model_choice=model_choice,
+                    storage_choice=storage_choice,
+                    file_info=file_info,
+                    use_openai=use_openai_bool,
+                    openai_api_key=openai_api_key,
+                    openai_base_url=openai_base_url,
+                    use_turbo=use_turbo_bool,
+                    batch_size=batch_size_int,
+                    preserve_record_structure=preserve_bool,
+                    document_key_column=document_key_column
+                )
+                
+                return {"mode": "campaign", "summary": result}
+        
+        else:
+            raise HTTPException(status_code=400, detail="No file or database config provided")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Campaign pipeline error: {str(e)}")
+
+@app.post("/campaign/retrieve")
+async def campaign_retrieve_endpoint(
+    query: str = Form(...),
+    search_field: str = Form("all"),
+    k: int = Form(5),
+    include_complete_records: str = Form("true")
+):
+    """Standard campaign retrieval"""
+    try:
+        include_complete_bool = include_complete_records.lower() == "true"
+        result = campaign_retrieve(query, search_field, k, include_complete_bool)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Campaign retrieval error: {str(e)}")
+
+@app.post("/campaign/smart_retrieval")
+async def campaign_smart_retrieval_endpoint(
+    query: str = Form(...),
+    search_field: str = Form("auto"),
+    k: int = Form(5),
+    include_complete_records: str = Form("true")
+):
+    """SMART two-stage company retrieval"""
+    try:
+        include_complete_bool = include_complete_records.lower() == "true"
+        result = campaign_smart_retrieval(query, search_field, k, include_complete_bool)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Smart retrieval error: {str(e)}")
+
+@app.get("/campaign/export/chunks")
+async def campaign_export_chunks_endpoint():
+    """Export campaign chunks"""
+    try:
+        chunks_data = campaign_export_chunks()
+        return JSONResponse(content={"data": chunks_data})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
+
+@app.get("/campaign/export/embeddings")
+async def campaign_export_embeddings_endpoint():
+    """Export campaign embeddings"""
+    try:
+        embeddings_data = campaign_export_embeddings()
+        return JSONResponse(content=embeddings_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
+
+@app.get("/campaign/export/preprocessed")
+async def campaign_export_preprocessed_endpoint():
+    """Export campaign preprocessed data"""
+    try:
+        preprocessed_text = campaign_export_preprocessed()
+        return JSONResponse(content={"preprocessed_data": preprocessed_text})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
+
+@app.get("/campaign/info")
+async def campaign_info_endpoint():
+    """Get campaign processing info"""
+    try:
+        return {
+            "mode": "campaign",
+            "chunks_available": campaign_state['chunks'] is not None,
+            "chunks_count": len(campaign_state['chunks']) if campaign_state['chunks'] else 0,
+            "model_loaded": campaign_state['model'] is not None,
+            "retrieval_ready": all([
+                campaign_state['model'] is not None,
+                campaign_state['store_info'] is not None,
+                campaign_state['chunks'] is not None
+            ])
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Info error: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8001)        

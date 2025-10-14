@@ -9,14 +9,15 @@ A powerful FastAPI-based system for processing large datasets (3GB+), intelligen
 ## Features
 
 ### Core Capabilities
-- **3 Processing Modes**: Fast, Config-1, and Deep Config (9-step pipeline)
+- **4 Processing Modes**: Fast, Config-1, Deep Config (9-step pipeline), and Campaign Mode
 - **Large File Support**: Handle CSV files up to 3GB+ with streaming I/O
-- **Multiple Chunking Strategies**: Fixed, Recursive, Semantic, Document-based
+- **Multiple Chunking Strategies**: Fixed, Recursive, Semantic, Document-based, Record-based, Company-based, Source-based
 - **Vector Storage**: FAISS and ChromaDB support
 - **Metadata Filtering**: Advanced filtered search with statistical aggregations
 - **Database Integration**: MySQL and PostgreSQL import
 - **OpenAI Compatible**: Drop-in replacement for OpenAI embeddings API
 - **Export Options**: CSV, NumPy (.npy), JSON formats
+- **Campaign Features**: Smart company retrieval, field detection, contextual display
 
 ### Performance
 - **Fast Mode**: ~60 seconds for 100K rows
@@ -88,9 +89,10 @@ curl http://127.0.0.1:8001/export/chunks --output results.csv
 ```
 copy-streamlitchunking/
 │
-├── main.py                      # FastAPI server (24+ endpoints)
+├── main.py                      # FastAPI server (30+ endpoints)
 ├── backend.py                   # Processing engine (core logic)
-├── app.py                       # Streamlit UI (optional web interface)
+├── backend_campaign.py          # Campaign mode processing engine
+├── app.py                       # Streamlit UI (4 processing modes)
 ├── requirements.txt             # Python dependencies
 ├── current_state.pkl            # State persistence file
 │
@@ -125,8 +127,8 @@ copy-streamlitchunking/
 |                      FASTAPI SERVER                                |
 |                    (Port 8001 - main.py)                          |
 |  +-------------+  +-------------+  +--------------+  +----------+ |
-|  |  Fast Mode  |  |  Config-1   |  | Deep Config  |  |Universal | |
-|  |  Endpoints  |  |  Endpoints  |  |  (8 Steps)   |  |Endpoint  | |
+|  |  Fast Mode  |  |  Config-1   |  | Deep Config  |  |Campaign  | |
+|  |  Endpoints  |  |  Endpoints  |  |  (8 Steps)   |  |  Mode    | |
 |  +-------------+  +-------------+  +--------------+  +----------+ |
 +-----------------------------+--------------------------------------+
                               |
@@ -197,6 +199,23 @@ curl -X POST http://127.0.0.1:8001/run_config1 \
 - Filtered search
 - ~120s for 100K rows
 
+### Campaign Mode (Specialized)
+**Best for:** Media campaigns, contact data, lead management
+
+```bash
+curl -X POST http://127.0.0.1:8001/campaign/run \
+  -F "file=@campaign_data.csv" \
+  -F "chunk_method=company_based" \
+  -F "model_choice=paraphrase-MiniLM-L6-v2"
+```
+
+- Smart company retrieval (2-stage matching)
+- Field detection and mapping
+- 5 specialized chunking methods
+- Complete record preservation
+- Contextual column display
+- ~75s for 100K rows
+
 ---
 
 ## Key Features
@@ -206,6 +225,9 @@ curl -X POST http://127.0.0.1:8001/run_config1 \
 - **Recursive**: Key-value format preservation
 - **Semantic**: KMeans clustering for similar content
 - **Document**: Group by entity/category
+- **Record-based**: Group contact records by count
+- **Company-based**: Group by company name
+- **Source-based**: Group by lead source
 
 ### 2. Metadata System
 - Smart column selection (cardinality filtering)
@@ -232,10 +254,13 @@ curl -X POST http://127.0.0.1:8001/run_config1 \
 
 ## API Endpoints
 
-### Processing (13 endpoints)
+### Processing (20 endpoints)
 - `POST /run_fast` - Fast mode processing
 - `POST /run_config1` - Configurable processing
 - `POST /deep_config/*` - 9 deep config steps
+- `POST /campaign/run` - Campaign mode processing
+- `POST /campaign/retrieve` - Campaign retrieval
+- `POST /campaign/smart_retrieval` - Smart company retrieval
 
 ### Retrieval (3 endpoints)
 - `POST /retrieve` - Basic search
@@ -247,10 +272,13 @@ curl -X POST http://127.0.0.1:8001/run_config1 \
 - `POST /db/list_tables` - List tables
 - `POST /db/import_one` - Import & process
 
-### Export (6 endpoints)
+### Export (9 endpoints)
 - `GET /export/chunks` - Export chunks as CSV
 - `GET /export/embeddings` - Export as NumPy
 - `GET /export/embeddings_text` - Export as JSON
+- `GET /campaign/export/chunks` - Export campaign chunks
+- `GET /campaign/export/embeddings` - Export campaign embeddings
+- `GET /campaign/export/preprocessed` - Export campaign preprocessed data
 - And more...
 
 ### System (4 endpoints)
@@ -259,7 +287,7 @@ curl -X POST http://127.0.0.1:8001/run_config1 \
 - `GET /system_info` - Resource usage
 - `GET /capabilities` - Feature list
 
-**Total: 33 endpoints**
+**Total: 40+ endpoints**
 
 ---
 
@@ -325,11 +353,11 @@ for item in results['results']:
 
 ## Performance Benchmarks
 
-| Dataset Size | Fast Mode | Config-1 | Deep Config |
-|-------------|-----------|----------|-------------|
-| 10K rows    | ~6s       | ~9s      | ~12s        |
-| 100K rows   | ~60s      | ~90s     | ~120s       |
-| 1M rows     | ~10min    | ~15min   | ~20min      |
+| Dataset Size | Fast Mode | Config-1 | Deep Config | Campaign Mode |
+|-------------|-----------|----------|-------------|---------------|
+| 10K rows    | ~6s       | ~9s      | ~12s        | ~7s           |
+| 100K rows   | ~60s      | ~90s     | ~120s       | ~75s          |
+| 1M rows     | ~10min    | ~15min   | ~20min      | ~12min        |
 
 **Memory Usage:**
 - 1GB file: ~2-3GB RAM
@@ -435,9 +463,11 @@ For questions, issues, or feature requests:
 
 ## Version History
 
-**v2.0** (Current)
-- 3 processing modes
-- 33 API endpoints
+**v3.0** (Current)
+- 4 processing modes (including Campaign Mode)
+- 40+ API endpoints
+- Smart company retrieval
+- Campaign-specific features
 - Metadata filtering
 - OpenAI compatibility
 - Large file support (3GB+)

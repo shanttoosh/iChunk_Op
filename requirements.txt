@@ -69,3 +69,9 @@ loguru>=0.7.0
 Jinja2>=3.1.0
 MarkupSafe>=2.1.0
 
+# LLM Integration
+google-generativeai>=0.3.0
+tiktoken>=0.5.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
+

@@ -63,6 +63,42 @@ from backend_campaign import (
 
 app = FastAPI(title="Chunking Optimizer API", version="1.0")
 
+# ---------------------------
+# NEW: LLM-POWERED ANSWER GENERATION ENDPOINTS
+# Place after FastAPI app initialization
+# ---------------------------
+@app.post("/llm/answer")
+async def llm_answer_endpoint(
+    query: str = Form(...)
+):
+    """Generate LLM answer using standard retrieval"""
+    try:
+        from backend import llm_answer
+        result = llm_answer(query, use_campaign=False)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"LLM answer endpoint error: {e}")
+        return JSONResponse(
+            status_code=500, 
+            content={"error": f"LLM answer generation failed: {str(e)}"}
+        )
+
+@app.post("/campaign/llm_answer")
+async def campaign_llm_answer_endpoint(
+    query: str = Form(...)
+):
+    """Generate LLM answer using campaign retrieval"""
+    try:
+        from backend import llm_answer
+        result = llm_answer(query, use_campaign=True)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Campaign LLM answer endpoint error: {e}")
+        return JSONResponse(
+            status_code=500, 
+            content={"error": f"Campaign LLM answer failed: {str(e)}"}
+        )
+
 def clear_deep_config_state():
     """Clear Deep Config data variables (not model/store)"""
     

@@ -725,6 +725,13 @@ def call_campaign_smart_retrieval_api(query: str, search_field: str = "auto", k:
     response = requests.post(f"{API_BASE_URL}/campaign/smart_retrieval", data=data)
     return response.json()
 
+def call_llm_answer_api(query: str, use_campaign: bool = False):
+    """Call LLM answer API"""
+    endpoint = "/campaign/llm_answer" if use_campaign else "/llm/answer"
+    data = {"query": query}
+    response = requests.post(f"{API_BASE_URL}{endpoint}", data=data)
+    return response.json()
+
 def download_campaign_chunks():
     """Download campaign chunks"""
     response = requests.get(f"{API_BASE_URL}/campaign/export/chunks")
@@ -890,6 +897,16 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # LLM Mode Selection
+    st.markdown("### 🤖 LLM Mode")
+    llm_mode = st.radio(
+        "Choose Response Mode:",
+        ["Normal Retrieval", "LLM Enhanced"],
+        help="Normal: Shows raw chunks. LLM: Generates intelligent answers using Gemini AI"
+    )
+    st.session_state.llm_mode = llm_mode
+    
+    st.markdown("---")
     
     # Large File Configuration
     with st.expander("💾 Large File Settings"):
@@ -3442,19 +3459,25 @@ if retrieval_ready:
                 try:
                     st.session_state.process_status["retrieval"] = "running"
                     
-                    # Use appropriate API based on mode
-                    if st.session_state.current_mode == "campaign":
-                        # For Campaign Mode, use SMART retrieval if enabled
-                        if st.session_state.campaign_use_smart_retrieval:
-                            retrieval_result = call_campaign_smart_retrieval_api(vector_query, "auto", k, True)
-                        else:
-                            retrieval_result = call_campaign_retrieve_api(vector_query, "all", k, True)
-                    elif st.session_state.current_mode == "deep":
-                        # For Deep Config, use the metadata-aware retrieval API
-                        retrieval_result = call_retrieve_api(vector_query, k)
+                    # Check LLM mode
+                    if st.session_state.get("llm_mode") == "LLM Enhanced":
+                        # Use LLM API
+                        use_campaign = st.session_state.current_mode == "campaign"
+                        retrieval_result = call_llm_answer_api(vector_query, use_campaign)
                     else:
-                        # For Fast Mode and Config-1, use standard retrieval API
-                        retrieval_result = call_retrieve_api(vector_query, k)
+                        # Use normal retrieval API
+                        if st.session_state.current_mode == "campaign":
+                            # For Campaign Mode, use SMART retrieval if enabled
+                            if st.session_state.campaign_use_smart_retrieval:
+                                retrieval_result = call_campaign_smart_retrieval_api(vector_query, "auto", k, True)
+                            else:
+                                retrieval_result = call_campaign_retrieve_api(vector_query, "all", k, True)
+                        elif st.session_state.current_mode == "deep":
+                            # For Deep Config, use the metadata-aware retrieval API
+                            retrieval_result = call_retrieve_api(vector_query, k)
+                        else:
+                            # For Fast Mode and Config-1, use standard retrieval API
+                            retrieval_result = call_retrieve_api(vector_query, k)
                     
                     st.session_state.process_status["retrieval"] = "completed"
                     st.session_state.retrieval_results = retrieval_result
@@ -3462,31 +3485,67 @@ if retrieval_ready:
                     if "error" in retrieval_result:
                         st.error(f"Retrieval error: {retrieval_result['error']}")
                     else:
-                        st.success(f"✅ Found {len(retrieval_result['results'])} results")
-                        
-                        # Display each result with clean UI (Deep Config style)
-                        for i, result in enumerate(retrieval_result['results']):
-                            with st.expander(f"Result {i+1} (Similarity: {result.get('similarity', 0):.3f})"):
-                                content = result.get('content', 'No content')
-                                
-                                # Determine height based on content length
-                                content_length = len(content)
-                                if content_length > 2000:
-                                    height = 400  # Large content
-                                elif content_length > 1000:
-                                    height = 300  # Medium content
-                                else:
-                                    height = 200  # Small content
-                                
-                                # Create scrollable content area
-                                st.text_area(
-                                    "Content:",
-                                    value=content,
-                                    height=height,
-                                    key=f"vector_result_content_{i}",
-                                    disabled=True,
-                                    label_visibility="collapsed"
-                                )
+                        # Check if this is LLM response or normal retrieval
+                        if st.session_state.get("llm_mode") == "LLM Enhanced" and "answer" in retrieval_result:
+                            # Display LLM response
+                            st.success("🤖 LLM Response Generated")
+                            
+                            # Show the answer
+                            st.markdown("### 💬 Answer")
+                            st.markdown(retrieval_result.get("answer", "No answer generated"))
+                            
+                            # Show sources if available
+                            if "sources" in retrieval_result and retrieval_result["sources"]:
+                                st.markdown("### 📚 Sources")
+                                for i, source in enumerate(retrieval_result["sources"]):
+                                    with st.expander(f"Source {i+1} (Similarity: {source.get('similarity', 0):.3f})"):
+                                        st.text_area(
+                                            "Content:",
+                                            value=source.get('snippet', 'No content'),
+                                            height=200,
+                                            key=f"llm_source_{i}",
+                                            disabled=True,
+                                            label_visibility="collapsed"
+                                        )
+                            
+                            # Show usage info if available
+                            if "usage" in retrieval_result:
+                                st.markdown("### 📊 Usage")
+                                usage = retrieval_result["usage"]
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Prompt Tokens", usage.get("prompt_tokens", 0))
+                                with col2:
+                                    st.metric("Output Tokens", usage.get("output_tokens", 0))
+                                with col3:
+                                    st.metric("Total Tokens", usage.get("total_tokens", 0))
+                        else:
+                            # Display normal retrieval results
+                            st.success(f"✅ Found {len(retrieval_result['results'])} results")
+                            
+                            # Display each result with clean UI (Deep Config style)
+                            for i, result in enumerate(retrieval_result['results']):
+                                with st.expander(f"Result {i+1} (Similarity: {result.get('similarity', 0):.3f})"):
+                                    content = result.get('content', 'No content')
+                                    
+                                    # Determine height based on content length
+                                    content_length = len(content)
+                                    if content_length > 2000:
+                                        height = 400  # Large content
+                                    elif content_length > 1000:
+                                        height = 300  # Medium content
+                                    else:
+                                        height = 200  # Small content
+                                    
+                                    # Create scrollable content area
+                                    st.text_area(
+                                        "Content:",
+                                        value=content,
+                                        height=height,
+                                        key=f"vector_result_content_{i}",
+                                        disabled=True,
+                                        label_visibility="collapsed"
+                                    )
                         
                 except Exception as e:
                     st.error(f"Retrieval error: {str(e)}")

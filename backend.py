@@ -21,7 +21,12 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import pickle
+import yaml
+from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
+
+# Load environment variables
+load_dotenv('config.env')
 
 logger = logging.getLogger(__name__)
 
@@ -2382,3 +2387,262 @@ def run_deep_config_pipeline(df, config_dict, file_info=None):
         "preprocessing_applied": bool(preprocessing_config),
         "enhanced_pipeline": True
     }
+# -----------------------------
+# 🔹 GEMINI LLM INTEGRATION (LLM Answer Path)
+# -----------------------------
+try:
+    import google.generativeai as genai  # type: ignore
+except Exception:
+    genai = None
+
+class GeminiClient:
+    """Simple wrapper for Google Gemini API."""
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash-lite", temperature: float = 0.3, max_output_tokens: int = 1024):
+        self.api_key = api_key
+        self.model_name = model
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
+        if genai is None:
+            raise ImportError("google-generativeai is not installed. Please add it to requirements and install.")
+        
+        logger.info(f"Initializing Gemini client with model: {model}")
+        logger.info(f"API key length: {len(api_key)} characters")
+        
+        try:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel(model)
+            logger.info("Gemini client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini client: {e}")
+            raise
+
+    def generate(self, prompt: str) -> Tuple[str, Dict[str, Any]]:
+        resp = self.model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": self.temperature,
+                "max_output_tokens": self.max_output_tokens,
+            }
+        )
+        answer = getattr(resp, "text", "") or ""
+        usage = {
+            "prompt_tokens": int(len(prompt.split()) * 1.3),
+            "output_tokens": int(len(answer.split()) * 1.3),
+            "model": self.model_name
+        }
+        return answer, usage
+
+_gemini_client_singleton = None
+
+def serialize_data(data):
+    """Convert data to JSON-serializable format"""
+    if isinstance(data, dict):
+        return {k: serialize_data(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [serialize_data(item) for item in data]
+    elif isinstance(data, (np.integer, np.floating)):
+        return float(data)
+    elif isinstance(data, np.ndarray):
+        return data.tolist()
+    elif pd.isna(data):
+        return None
+    else:
+        return data
+
+def load_llm_config():
+    """Load LLM configuration from YAML file"""
+    try:
+        with open('llm_config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+    except Exception as e:
+        logger.warning(f"Could not load llm_config.yaml: {e}")
+        return {"profiles": {"qa": {"model": "gemini-2.0-flash-lite", "temperature": 0.3, "max_output_tokens": 1024, "context_token_budget": 8000, "retrieval_k": 7}}, "default_profile": "qa"}
+
+def get_gemini_client(profile: str = "qa") -> GeminiClient:
+    global _gemini_client_singleton
+    if _gemini_client_singleton is None:
+        # Reload environment variables to ensure they're available
+        load_dotenv('config.env', override=True)
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        logger.info(f"Loading Gemini API key: {api_key[:10]}..." if api_key else "No API key found")
+        if not api_key:
+            logger.warning("GEMINI_API_KEY not found in environment variables")
+            return None
+        
+        config = load_llm_config()
+        profile_config = config["profiles"].get(profile, config["profiles"][config["default_profile"]])
+        
+        _gemini_client_singleton = GeminiClient(
+            api_key=api_key,
+            model=profile_config.get("model", "gemini-2.0-flash-lite"),
+            temperature=profile_config.get("temperature", 0.3),
+            max_output_tokens=profile_config.get("max_output_tokens", 1024)
+        )
+    return _gemini_client_singleton
+
+def pack_context_for_llm(chunks_results: List[Dict[str, Any]], token_budget: int = 8000, add_facts: bool = False, facts: Dict[str, Any] = None) -> str:
+    parts: List[str] = []
+    current_tokens = 0
+    if add_facts and facts:
+        facts_lines = ["Dataset Statistics:"]
+        for k, v in facts.items():
+            facts_lines.append(f"- {k}: {v}")
+        facts_text = "\n".join(facts_lines) + "\n\n"
+        t = estimate_token_count(facts_text)
+        if t < int(token_budget * 0.25):
+            parts.append(facts_text)
+            current_tokens += t
+    added = 0
+    for res in chunks_results:
+        if added >= 10:
+            break
+        content = res.get("content", "")
+        sim = float(res.get("similarity", 0))
+        # snippetize: first 3 sentences or first 500 chars
+        sentences = content.split('. ')
+        snippet = '. '.join(sentences[:3]) if len(sentences) > 3 else content[:500]
+        if len(content) > len(snippet):
+            snippet = snippet.rstrip() + "..."
+        text = f"[Source {added+1}] (Similarity: {sim:.2f})\n{snippet}\n\n"
+        t = estimate_token_count(text)
+        if current_tokens + t > token_budget:
+            break
+        parts.append(text)
+        current_tokens += t
+        added += 1
+    return "".join(parts)
+
+def build_prompt(query: str, context: str, task: str = "qa") -> str:
+    if task == "summarize":
+        return (
+            "You are a data analyst. Provide a concise summary of the dataset based only on the context.\n\n"
+            f"Context:\n{context}\n\nTask: Summarize key entities, trends, and insights.\n\nSummary:"
+        )
+    if task == "insights":
+        return (
+            "You are a business strategist. Identify opportunities with reasons and next actions based only on the context.\n\n"
+            f"Context:\n{context}\n\nTask: List top opportunities with justification and recommended next steps.\n\nAnalysis:"
+        )
+    # default QA
+    return (
+        "You are a helpful assistant. Answer the question based ONLY on the provided context.\n"
+        "If the answer is not in the context, say: I don't have enough information.\n"
+        "Be concise and cite sources if possible.\n\n"
+        f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+    )
+
+def detect_task_from_query(query: str) -> str:
+    q = (query or "").lower()
+    if any(w in q for w in ["summarize", "summary", "overview", "what is this data"]):
+        return "summarize"
+    if any(w in q for w in ["opportunities", "insights", "recommend", "strategy", "improve", "convert"]):
+        return "insights"
+    return "qa"
+
+def compute_campaign_facts() -> Dict[str, Any]:
+    facts: Dict[str, Any] = {}
+    try:
+        df = None
+        if 'current_media_campaign_data' in globals() and current_media_campaign_data:
+            df = current_media_campaign_data.get('processed_df')
+            field_mapping = current_media_campaign_data.get('field_mapping', {})
+        elif 'current_df' in globals() and current_df is not None:
+            df = current_df
+            field_mapping = {}
+        else:
+            return facts
+        if df is None or len(df) == 0:
+            return facts
+        facts['total_records'] = int(len(df))
+        # status
+        status_cols = [c for c, f in (field_mapping or {}).items() if f == 'lead_status']
+        if status_cols and status_cols[0] in df.columns:
+            vc = df[status_cols[0]].value_counts(dropna=True)
+            for k in list(vc.index)[:5]:
+                facts[f"status_{str(k)}"] = int(vc[k])
+        # source
+        source_cols = [c for c, f in (field_mapping or {}).items() if f == 'lead_source']
+        if source_cols and source_cols[0] in df.columns:
+            vc = df[source_cols[0]].value_counts(dropna=True)
+            if not vc.empty:
+                facts['top_source'] = str(vc.index[0])
+        # companies
+        company_cols = [c for c, f in (field_mapping or {}).items() if f in ['company', 'company_name']]
+        if company_cols and company_cols[0] in df.columns:
+            facts['unique_companies'] = int(df[company_cols[0]].nunique(dropna=True))
+    except Exception:
+        pass
+    return facts
+
+def llm_answer(query: str, use_campaign: bool = False) -> Dict[str, Any]:
+    start = time.time()
+    task = detect_task_from_query(query)
+    k = 12 if task in ("summarize", "insights") else 7
+    try:
+        if use_campaign:
+            try:
+                from backend_campaign import campaign_smart_retrieval
+                ret = campaign_smart_retrieval(query, "auto", k, True)
+            except Exception:
+                ret = retrieve_similar(query, k)
+        else:
+            ret = retrieve_similar(query, k)
+        if 'error' in ret:
+            return {"error": ret.get('error', 'retrieval_failed'), "sources": []}
+        results = ret.get('results', [])
+        if not results:
+            return {
+                "answer": "I don't have enough information to answer that.",
+                "sources": [],
+                "retrieval": {"k": k, "found": 0},
+                "model_info": {"name": "gemini-2.0-flash-lite"}
+            }
+        facts = compute_campaign_facts() if task in ("summarize", "insights") else None
+        context = pack_context_for_llm(results, token_budget=8000, add_facts=bool(facts), facts=facts or {})
+        prompt = build_prompt(query, context, task)
+        client = get_gemini_client()
+        if not client:
+            return {
+                "error": "Gemini API key not configured. Please set GEMINI_API_KEY in config.env",
+                "sources": results[:3],  # Show retrieval results as fallback
+                "retrieval": {"k": k, "found": len(results)},
+                "status": "no_llm"
+            }
+        answer, usage = client.generate(prompt)
+        sources = []
+        for i, r in enumerate(results[:5]):
+            snippet = r.get('content', '')
+            if len(snippet) > 300:
+                snippet = snippet[:300] + '...'
+            sources.append({
+                "rank": i+1,
+                "similarity": float(r.get('similarity', 0)),
+                "snippet": snippet,
+                "metadata": r.get('metadata', {})
+            })
+        return serialize_data({
+            "answer": answer,
+            "sources": sources,
+            "facts": facts,
+            "usage": {
+                "prompt_tokens": usage.get('prompt_tokens', 0),
+                "output_tokens": usage.get('output_tokens', 0),
+                "total_tokens": int(usage.get('prompt_tokens', 0)) + int(usage.get('output_tokens', 0))
+            },
+            "retrieval": {
+                "k": k,
+                "found": len(results),
+                "method": ret.get('retrieval_method', 'semantic'),
+                "store_type": (current_store_info.get('type', 'unknown') if current_store_info else 'unknown')
+            },
+            "model_info": {
+                "name": client.model_name,
+                "temperature": 0.3,
+                "task_detected": task
+            },
+            "processing_time": f"{time.time()-start:.2f}s"
+        })
+    except Exception as e:
+        logger.error(f"LLM answer failed: {e}")
+        return {"error": f"LLM generation failed: {str(e)}", "fallback_mode": "retrieval_only", "sources": ret.get('results', [])[:5] if 'ret' in locals() else []}

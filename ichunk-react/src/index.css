@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ev-colors-primary: #282828;
+    --ev-colors-secondary: #424242;
+    --ev-colors-tertiary: #4e332a;
+    --ev-colors-highlight: #e75f33;
+    --ev-colors-text: #fff;
+    --ev-colors-secondary-text: #999;
+    --ev-colors-tertiary-text: #a3a3a3;
+    --ev-colors-border-color: #ffffff1f;
+    --ev-colors-background: #161616;
+    --ev-colors-success: #d8fc77;
+    --ev-colors-danger: #dc143c;
+  }
+  
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #161616; /* primaryDark */
+    color: #ffffff; /* textPrimary */
+  }
+  
+  html {
+    background-color: #161616; /* primaryDark */
+  }
+}
+
+@layer components {
+  .custom-card {
+    @apply bg-primary border border-border rounded-lg p-3 transition-all duration-200 hover:border-highlight/30;
+  }
+  
+  .process-step {
+    @apply bg-primary p-2.5 rounded my-1.5 border-l-4 transition-all duration-200;
+  }
+  
+  .process-step.pending {
+    @apply border-l-secondary;
+  }
+  
+  .process-step.running {
+    @apply border-l-highlight;
+  }
+  
+  .process-step.completed {
+    @apply border-l-success;
+  }
+  
+  .scrollable-chunk {
+    @apply max-h-96 overflow-y-auto;
+  }
+  
+  /* Custom scrollbar for specific components (inherits from global) */
+  .scrollable-chunk::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .scrollable-chunk::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollable-chunk::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+  }
+  
+  .scrollable-chunk::-webkit-scrollbar-thumb:hover {
+    background: rgba(231, 95, 51, 0.5);
+  }
+  
+  /* Global minimalist scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    transition: all 0.2s ease;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(231, 95, 51, 0.6); /* highlight color with opacity */
+  }
+  
+  ::-webkit-scrollbar-thumb:active {
+    background: rgba(231, 95, 51, 0.8);
+  }
+  
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+  
+  .primary-button {
+    @apply bg-highlight text-white hover:brightness-110 transition-all duration-200 rounded-md font-medium;
+  }
+  
+  .secondary-button {
+    @apply bg-secondary text-white hover:bg-primary transition-all duration-200 px-4 py-2 rounded-lg font-medium;
+  }
+  
+  .input-field {
+    @apply bg-primary border border-border text-white focus:border-highlight focus:outline-none px-3 py-2 rounded-lg;
+  }
+  
+  .tab-active {
+    @apply border-b-2 border-highlight text-highlight;
+  }
+  
+  .notification-success {
+    @apply bg-primary border-l-4 border-success;
+  }
+  
+  .notification-error {
+    @apply bg-primary border-l-4 border-danger;
+  }
+}

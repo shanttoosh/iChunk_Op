@@ -25,11 +25,13 @@ const MetadataColumnSelector = ({
 
   useEffect(() => {
     // Notify parent of selection changes
-    onSelectionChange({
-      numeric: selectedNumeric,
-      categorical: selectedCategorical,
-      total: selectedNumeric.length + selectedCategorical.length
-    });
+    if (onSelectionChange) {
+      onSelectionChange({
+        numeric: selectedNumeric,
+        categorical: selectedCategorical,
+        total: selectedNumeric.length + selectedCategorical.length
+      });
+    }
   }, [selectedNumeric, selectedCategorical, onSelectionChange]);
 
   const fetchMetadataColumns = async () => {

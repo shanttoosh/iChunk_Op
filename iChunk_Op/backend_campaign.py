@@ -1130,8 +1130,9 @@ def get_complete_records_for_chunk(chunk_idx: int) -> List[Dict]:
 def run_campaign_pipeline(df, chunk_method="record_based", chunk_size=5, model_choice="paraphrase-MiniLM-L6-v2", 
                           storage_choice="faiss", db_config=None, file_info=None, use_openai=False, 
                           openai_api_key=None, openai_base_url=None, use_turbo=False, batch_size=EMBEDDING_BATCH_SIZE,
-                          preserve_record_structure=True, document_key_column=None):
-    """Enhanced Media Campaign pipeline with all chunking methods"""
+                          preserve_record_structure=True, document_key_column=None,
+                          agentic_strategy=None, user_context=None):
+    """Enhanced Media Campaign pipeline with all chunking methods (including agentic)"""
     logger.info(f"🎯 Starting Campaign pipeline with {len(df)} records")
     campaign_state['df'] = df.copy()
     campaign_set_file_info(file_info)
@@ -1143,7 +1144,26 @@ def run_campaign_pipeline(df, chunk_method="record_based", chunk_size=5, model_c
     metadata = []
     
     # Enhanced chunking methods
-    if chunk_method == "record_based":
+    if chunk_method == "agentic":
+        # Agentic chunking for campaign data
+        import os
+        import sys
+        sys.path.append(os.path.dirname(__file__))
+        from backend_agentic import get_agentic_orchestrator
+        
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_key:
+            raise ValueError("Agentic chunking requires GEMINI_API_KEY environment variable")
+        
+        logger.info(f"Using agentic chunking for Campaign with strategy: {agentic_strategy or 'auto'}")
+        orchestrator = get_agentic_orchestrator(gemini_key)
+        chunks, metadata = orchestrator.analyze_and_chunk(
+            df=df1,
+            strategy=agentic_strategy or "auto",
+            user_context=user_context or "Marketing campaign data analysis",
+            max_chunk_size=chunk_size * 10  # Campaign chunks are typically smaller
+        )
+    elif chunk_method == "record_based":
         chunks, metadata = campaign_chunk_records(df1, chunk_size, field_mapping)
     elif chunk_method == "company_based":
         chunks, metadata = campaign_chunk_by_company(df1, field_mapping, chunk_size)

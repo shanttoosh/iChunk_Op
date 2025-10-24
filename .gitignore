@@ -73,3 +73,12 @@ dist/
 # Project specific
 .history/
 *.orig
+
+# Vector stores and cache (generated data)
+chromadb_store/
+chroma_db/
+faiss_store/
+processing_cache/
+*.pkl
+*.faiss
+*.index

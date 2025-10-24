@@ -555,7 +555,10 @@ async def run_config1(
     apply_default_preprocessing: bool = Form(True),
     process_large_files: bool = Form(True),
     use_turbo: bool = Form(False),
-    batch_size: int = Form(256)
+    batch_size: int = Form(256),
+    # Agentic chunking parameters
+    agentic_strategy: str = Form(None),
+    user_context: str = Form(None)
 ):
     try:
         # Handle database input
@@ -633,7 +636,9 @@ async def run_config1(
                         document_key_column=document_key_column,
                         token_limit=token_limit,
                         retrieval_metric=retrieval_metric,
-                        apply_default_preprocessing=apply_default_preprocessing
+                        apply_default_preprocessing=apply_default_preprocessing,
+                        agentic_strategy=agentic_strategy,
+                        user_context=user_context
                     )
                     
                     return {"mode": "config1", "summary": result}
@@ -652,6 +657,8 @@ async def run_config1(
             chunk_size, overlap, model_choice, storage_choice, 
             document_key_column=document_key_column,
             token_limit=token_limit,
+            agentic_strategy=agentic_strategy,
+            user_context=user_context,
             retrieval_metric=retrieval_metric,
             apply_default_preprocessing=apply_default_preprocessing,
             n_clusters=n_clusters,
@@ -1109,31 +1116,61 @@ async def deep_config_chunk(
     n_clusters: int = Form(10),
     store_metadata: bool = Form(False),
     selected_numeric_columns: str = Form("[]"),
-    selected_categorical_columns: str = Form("[]")
+    selected_categorical_columns: str = Form("[]"),
+    # Agentic chunking parameters
+    agentic_strategy: str = Form(None),  # "auto", "schema", "entity"
+    user_context: str = Form(None)
 ):
-    """Step 6: Chunk data"""
+    """Step 6: Chunk data (with agentic chunking support)"""
     try:
         if backend.current_df is None:
             return {"error": "No data available. Run preprocessing first."}
         
-        from backend import (
-            chunk_fixed_enhanced, chunk_recursive_keyvalue_enhanced,
-            chunk_semantic_cluster_enhanced, document_based_chunking_enhanced
-        )
+        # Check if agentic chunking is requested
+        if chunk_method == "agentic":
+            import os
+            from backend_agentic import get_agentic_orchestrator
+            
+            # Get Gemini API key
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if not gemini_key:
+                return {"error": "Agentic chunking requires GEMINI_API_KEY to be set in environment"}
+            
+            try:
+                orchestrator = get_agentic_orchestrator(gemini_key)
+                chunks, metadata = orchestrator.analyze_and_chunk(
+                    df=backend.current_df,
+                    strategy=agentic_strategy or "auto",
+                    user_context=user_context,
+                    max_chunk_size=token_limit
+                )
+                
+                logger.info(f"Agentic chunking complete: {len(chunks)} chunks created")
+                
+            except Exception as e:
+                logger.error(f"Agentic chunking failed: {e}")
+                return {"error": f"Agentic chunking failed: {str(e)}"}
         
-        if chunk_method == "fixed":
-            chunks = chunk_fixed_enhanced(backend.current_df, chunk_size, overlap)
-            metadata = [{"chunk_id": f"fixed_{i:04d}", "method": "fixed"} for i in range(len(chunks))]
-        elif chunk_method == "recursive":
-            chunks = chunk_recursive_keyvalue_enhanced(backend.current_df, chunk_size, overlap)
-            metadata = [{"chunk_id": f"kv_{i:04d}", "method": "recursive_kv"} for i in range(len(chunks))]
-        elif chunk_method == "semantic":
-            chunks = chunk_semantic_cluster_enhanced(backend.current_df, n_clusters)
-            metadata = [{"chunk_id": f"sem_cluster_{i:04d}", "method": "semantic_cluster"} for i in range(len(chunks))]
-        elif chunk_method == "document":
-            chunks, metadata = document_based_chunking_enhanced(backend.current_df, key_column, token_limit)
         else:
-            return {"error": f"Unknown chunking method: {chunk_method}"}
+            # Traditional chunking methods
+            from backend import (
+                chunk_fixed_enhanced, chunk_recursive_keyvalue_enhanced,
+                chunk_semantic_cluster_enhanced, document_based_chunking_enhanced
+            )
+            
+            if chunk_method == "fixed":
+                chunks = chunk_fixed_enhanced(backend.current_df, chunk_size, overlap)
+                metadata = [{"chunk_id": f"fixed_{i:04d}", "method": "fixed"} for i in range(len(chunks))]
+            elif chunk_method == "recursive":
+                chunks = chunk_recursive_keyvalue_enhanced(backend.current_df, chunk_size, overlap)
+                metadata = [{"chunk_id": f"kv_{i:04d}", "method": "recursive_kv"} for i in range(len(chunks))]
+            elif chunk_method == "semantic":
+                chunks = chunk_semantic_cluster_enhanced(backend.current_df, n_clusters)
+                metadata = [{"chunk_id": f"sem_cluster_{i:04d}", "method": "semantic_cluster"} for i in range(len(chunks))]
+            elif chunk_method == "document":
+                chunks, metadata = document_based_chunking_enhanced(backend.current_df, key_column, token_limit)
+            else:
+                return {"error": f"Unknown chunking method: {chunk_method}"}
         
         # Enhance metadata with user-selected columns if enabled
         if store_metadata and metadata:
@@ -2391,9 +2428,12 @@ async def run_campaign_endpoint(
     use_turbo: str = Form("true"),
     batch_size: str = Form("256"),
     preserve_record_structure: str = Form("true"),
-    document_key_column: Optional[str] = Form(None)
+    document_key_column: Optional[str] = Form(None),
+    # Agentic chunking parameters
+    agentic_strategy: Optional[str] = Form(None),
+    user_context: Optional[str] = Form(None)
 ):
-    """Campaign mode pipeline - specialized for media campaign data"""
+    """Campaign mode pipeline - specialized for media campaign data (with agentic chunking support)"""
     try:
         use_openai_bool = use_openai.lower() == "true"
         process_large_bool = process_large_files.lower() == "true"
@@ -2433,6 +2473,8 @@ async def run_campaign_endpoint(
                 openai_api_key=openai_api_key,
                 openai_base_url=openai_base_url,
                 use_turbo=use_turbo_bool,
+                agentic_strategy=agentic_strategy,
+                user_context=user_context,
                 batch_size=batch_size_int,
                 preserve_record_structure=preserve_bool,
                 document_key_column=document_key_column
@@ -2486,6 +2528,8 @@ async def run_campaign_endpoint(
                     openai_api_key=openai_api_key,
                     openai_base_url=openai_base_url,
                     use_turbo=use_turbo_bool,
+                    agentic_strategy=agentic_strategy,
+                    user_context=user_context,
                     batch_size=batch_size_int,
                     preserve_record_structure=preserve_bool,
                     document_key_column=document_key_column

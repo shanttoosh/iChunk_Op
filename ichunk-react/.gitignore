@@ -85,7 +85,7 @@ dist
 
 # Gatsby files
 .cache/
-public
+# public  # Commented out - we need to track public folder for Vite/React assets
 
 # Vuepress build output
 .vuepress/dist

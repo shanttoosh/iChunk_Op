@@ -1169,7 +1169,8 @@ def run_config1_pipeline(df, chunk_method,
                          use_turbo=False, batch_size=EMBEDDING_BATCH_SIZE,
                          document_key_column: str = None, token_limit: int = 2000,
                          retrieval_metric: str = "cosine", apply_default_preprocessing: bool = True,
-                         n_clusters: int = 10):
+                         n_clusters: int = 10,
+                         agentic_strategy: str = None, user_context: str = None):
     global current_model, current_store_info, current_chunks, current_embeddings, current_df
     
     set_file_info(file_info)
@@ -1194,7 +1195,24 @@ def run_config1_pipeline(df, chunk_method,
     
     df1 = df.copy()
 
-    if chunk_method == "fixed":
+    if chunk_method == "agentic":
+        # Agentic chunking
+        import os
+        from backend_agentic import get_agentic_orchestrator
+        
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_key:
+            raise ValueError("Agentic chunking requires GEMINI_API_KEY environment variable")
+        
+        logger.info(f"Using agentic chunking with strategy: {agentic_strategy or 'auto'}")
+        orchestrator = get_agentic_orchestrator(gemini_key)
+        chunks, _ = orchestrator.analyze_and_chunk(
+            df=df1,
+            strategy=agentic_strategy or "auto",
+            user_context=user_context,
+            max_chunk_size=token_limit
+        )
+    elif chunk_method == "fixed":
         chunks = chunk_fixed(df1, chunk_size, overlap)
     elif chunk_method == "recursive":
         chunks = chunk_recursive_keyvalue(df1, chunk_size, overlap)

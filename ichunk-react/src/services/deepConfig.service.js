@@ -88,7 +88,7 @@ export const deepConfigService = {
   },
 
   /**
-   * Step 7: Create text chunks with metadata
+   * Step 7: Create text chunks with metadata (including agentic chunking)
    */
   async chunk(config) {
     const formData = new FormData();
@@ -101,6 +101,14 @@ export const deepConfigService = {
     formData.append('store_metadata', config.storeMetadata);
     formData.append('selected_numeric_columns', JSON.stringify(config.numericColumns));
     formData.append('selected_categorical_columns', JSON.stringify(config.categoricalColumns));
+    
+    // Agentic chunking parameters
+    if (config.method === 'agentic') {
+      formData.append('agentic_strategy', config.agenticStrategy || 'auto');
+      if (config.userContext) {
+        formData.append('user_context', config.userContext);
+      }
+    }
     
     const response = await api.post('/deep_config/chunk', formData);
     return response.data;

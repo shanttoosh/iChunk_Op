@@ -36,6 +36,14 @@ export const config1Service = {
     formData.append('token_limit', config.tokenLimit || 2000);
     formData.append('retrieval_metric', config.retrievalMetric || 'cosine');
     
+    // Agentic chunking parameters
+    if (config.chunkMethod === 'agentic') {
+      formData.append('agentic_strategy', config.agenticStrategy || 'auto');
+      if (config.userContext) {
+        formData.append('user_context', config.userContext);
+      }
+    }
+    
     // Model and storage configuration
     formData.append('model_choice', config.modelChoice || 'paraphrase-MiniLM-L6-v2');
     formData.append('storage_choice', config.storageChoice || 'faiss');

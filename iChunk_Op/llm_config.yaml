@@ -29,6 +29,22 @@ profiles:
     max_output_tokens: 2048
     context_token_budget: 12000
     retrieval_k: 15
+  
+  agentic_chunking:
+    model: "gemini-2.0-flash-exp"
+    temperature: 0.3
+    max_output_tokens: 2048
+    context_token_budget: 4000
+    description: "Optimized for agentic chunking analysis and strategy selection"
+    safety_settings:
+      - category: "HARM_CATEGORY_HARASSMENT"
+        threshold: "BLOCK_NONE"
+      - category: "HARM_CATEGORY_HATE_SPEECH"
+        threshold: "BLOCK_NONE"
+      - category: "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+        threshold: "BLOCK_NONE"
+      - category: "HARM_CATEGORY_DANGEROUS_CONTENT"
+        threshold: "BLOCK_NONE"
 
 # Default profile
 default_profile: "qa"

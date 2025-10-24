@@ -35,6 +35,9 @@ const Config1Mode = () => {
     documentKeyColumn: '',
     tokenLimit: 2000,
     preserveHeaders: false,
+    // Agentic chunking
+    agenticStrategy: 'auto',
+    userContext: '',
     
     // Embedding
     modelChoice: 'paraphrase-MiniLM-L6-v2',
@@ -154,7 +157,8 @@ const Config1Mode = () => {
     { value: 'fixed', label: 'Fixed Size' },
     { value: 'recursive', label: 'Recursive Character' },
     { value: 'semantic', label: 'Semantic Clustering' },
-    { value: 'document', label: 'Document Based' }
+    { value: 'document', label: 'Document Based' },
+    { value: 'agentic', label: '🤖 Agentic (AI-Powered)' }
   ];
 
   const embeddingModelOptions = [
@@ -304,6 +308,45 @@ const Config1Mode = () => {
                     />
                     <span className="text-textPrimary">Include headers in each chunk</span>
                   </label>
+                </div>
+              </div>
+            )}
+
+            {/* Agentic Chunking Configuration */}
+            {config.chunkMethod === 'agentic' && (
+              <div className="p-4 bg-secondary rounded-lg border-2 border-highlight/30">
+                <div className="flex items-center space-x-2 mb-4">
+                  <Info className="h-5 w-5 text-highlight" />
+                  <h4 className="font-medium text-textPrimary">AI-Powered Agentic Chunking</h4>
+                </div>
+                
+                <div className="space-y-4">
+                  <Select
+                    label="Chunking Strategy"
+                    value={config.agenticStrategy}
+                    onChange={(e) => handleConfigChange('agenticStrategy', e.target.value)}
+                    options={[
+                      { value: 'auto', label: '🤖 Auto (AI Decides)' },
+                      { value: 'schema', label: 'Schema-Aware' },
+                      { value: 'entity', label: 'Entity-Centric' }
+                    ]}
+                  />
+                  
+                  <Input
+                    label="User Context (Optional)"
+                    value={config.userContext}
+                    onChange={(e) => handleConfigChange('userContext', e.target.value)}
+                    placeholder="e.g., 'Analyze sales by region'"
+                  />
+                  
+                  <div className="p-3 bg-primary rounded-lg border border-highlight/20">
+                    <p className="text-sm text-textSecondary">
+                      💡 <strong>Agentic Chunking:</strong> AI analyzes your data structure, identifies entities (users, products, companies), and creates intelligent chunks that preserve context and relationships.
+                    </p>
+                    <p className="text-xs text-highlight mt-2">
+                      ⚠️ Requires GEMINI_API_KEY environment variable
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

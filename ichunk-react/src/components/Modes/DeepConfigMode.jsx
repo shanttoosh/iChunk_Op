@@ -1,5 +1,5 @@
 // src/components/Modes/DeepConfigMode.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -119,7 +119,10 @@ const DeepConfigMode = () => {
       nClusters: 10,
       storeMetadata: true,
       numericColumns: [],
-      categoricalColumns: []
+      categoricalColumns: [],
+      // Agentic chunking parameters
+      agenticStrategy: 'auto',
+      userContext: ''
     },
     
     // Step 8: Embedding
@@ -176,6 +179,12 @@ const DeepConfigMode = () => {
       }
     }));
   };
+
+  // Memoized callback for metadata column selection to prevent infinite re-renders
+  const handleMetadataSelectionChange = useCallback((selection) => {
+    handleConfigChange('chunking', 'numericColumns', selection.numeric);
+    handleConfigChange('chunking', 'categoricalColumns', selection.categorical);
+  }, []);
 
   const handleFileSelect = (selectedFile) => {
     setFile(selectedFile);
@@ -250,7 +259,6 @@ const DeepConfigMode = () => {
       
       // Update global processing state
       updateProcessStatus(globalStep, 'completed');
-      addCompletedStep(globalStep);
       
       // Store step results
       if (stepNumber !== null) {
@@ -1035,7 +1043,8 @@ const DeepConfigMode = () => {
                   { value: 'fixed', label: 'Fixed Size' },
                   { value: 'recursive', label: 'Recursive' },
                   { value: 'semantic', label: 'Semantic Clustering' },
-                  { value: 'document', label: 'Document Based' }
+                  { value: 'document', label: 'Document Based' },
+                  { value: 'agentic', label: '🤖 Agentic (AI-Powered)' }
                 ]}
               />
 
@@ -1163,6 +1172,54 @@ const DeepConfigMode = () => {
                 </div>
               )}
 
+              {/* Agentic Chunking Configuration */}
+              {config.chunking.method === 'agentic' && (
+                <div className="p-4 bg-secondary rounded-lg border-2 border-highlight/30">
+                  <div className="flex items-center space-x-2 mb-4">
+                    <Brain className="h-5 w-5 text-highlight" />
+                    <h4 className="font-medium text-textPrimary">Agentic Chunking Configuration</h4>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <Select
+                      label="Chunking Strategy"
+                      value={config.chunking.agenticStrategy || 'auto'}
+                      onChange={(e) => handleConfigChange('chunking', 'agenticStrategy', e.target.value)}
+                      options={[
+                        { value: 'auto', label: '🤖 Auto (AI Decides Best Strategy)' },
+                        { value: 'schema', label: 'Schema-Aware (Analyzes table structure)' },
+                        { value: 'entity', label: 'Entity-Centric (Groups by entities)' }
+                      ]}
+                    />
+                    
+                    <Input
+                      label="User Context (Optional)"
+                      value={config.chunking.userContext || ''}
+                      onChange={(e) => handleConfigChange('chunking', 'userContext', e.target.value)}
+                      placeholder="e.g., 'Analyze sales by region' or 'Focus on customer behavior'"
+                    />
+                    
+                    <div className="p-3 bg-primary rounded-lg border border-highlight/20">
+                      <div className="flex items-start space-x-2">
+                        <Info className="h-4 w-4 text-highlight mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-textSecondary">
+                          <p className="font-medium text-textPrimary mb-1">How Agentic Chunking Works:</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            <li>AI analyzes your data structure and column relationships</li>
+                            <li>Identifies entities (users, products, companies)</li>
+                            <li>Decides optimal grouping strategy automatically</li>
+                            <li>Preserves context and semantic meaning</li>
+                          </ul>
+                          <p className="mt-2 text-xs text-highlight">
+                            ⚠️ Requires GEMINI_API_KEY to be set in environment
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="p-4 bg-secondary rounded-lg">
                 <h4 className="font-medium text-textPrimary mb-3">Metadata Extraction</h4>
                 <div className="space-y-3">
@@ -1179,10 +1236,7 @@ const DeepConfigMode = () => {
                   {config.chunking.storeMetadata && (
                     <div className="mt-4">
                       <MetadataColumnSelector
-                        onSelectionChange={(selection) => {
-                          handleConfigChange('chunking', 'numericColumns', selection.numeric);
-                          handleConfigChange('chunking', 'categoricalColumns', selection.categorical);
-                        }}
+                        onSelectionChange={handleMetadataSelectionChange}
                         initialNumeric={config.chunking.numericColumns}
                         initialCategorical={config.chunking.categoricalColumns}
                         disabled={isProcessing}

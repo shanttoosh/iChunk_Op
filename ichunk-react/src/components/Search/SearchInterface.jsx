@@ -7,6 +7,7 @@ import Card from '../UI/Card';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
 import Select from '../UI/Select';
+import CampaignSearchResults from './CampaignSearchResults';
 import retrievalService from '../../services/retrieval.service';
 import campaignService from '../../services/campaign.service';
 import { DEFAULT_VALUES } from '../../utils/constants';
@@ -107,49 +108,13 @@ const SearchInterface = () => {
       );
     }
 
-    // Normal retrieval results
+    // Campaign mode results
     if (currentMode === 'campaign') {
       return (
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-textPrimary">Search Results</h3>
-          {searchResults.results && searchResults.results.map((result, index) => (
-            <div key={index} className="p-4 bg-primary rounded-lg border border-border">
-              <div className="flex justify-between items-start mb-3">
-                <div className="text-sm text-textSecondary">
-                  Result {index + 1}
-                  {result.match_type && (
-                    <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                      result.match_type === 'exact' ? 'bg-success text-primary' :
-                      result.match_type === 'partial' ? 'bg-warning text-primary' :
-                      'bg-secondary text-textPrimary'
-                    }`}>
-                      {result.match_type}
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-textSecondary">
-                  Similarity: {result.similarity ? (result.similarity * 100).toFixed(1) + '%' : 'N/A'}
-                </div>
-              </div>
-              
-              <div className="text-textPrimary scrollable-chunk mb-3">
-                {result.content || result.text}
-              </div>
-
-              {result.complete_record && (
-                <div className="mt-3 p-3 bg-secondary rounded border border-border">
-                  <h5 className="font-medium text-textPrimary mb-2">Complete Record:</h5>
-                  <div className="text-sm text-textPrimary">
-                    {typeof result.complete_record === 'object' ? 
-                      JSON.stringify(result.complete_record, null, 2) :
-                      result.complete_record
-                    }
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <CampaignSearchResults 
+          searchResults={searchResults} 
+          query={query}
+        />
       );
     }
 
@@ -189,7 +154,14 @@ const SearchInterface = () => {
     );
   };
 
-  const searchFieldOptions = [
+  const searchFieldOptions = currentMode === 'campaign' ? [
+    { value: 'all', label: 'All Fields' },
+    { value: 'company', label: 'Company' },
+    { value: 'contact', label: 'Contact' },
+    { value: 'email', label: 'Email' },
+    { value: 'phone', label: 'Phone' },
+    { value: 'auto', label: 'Auto-detect' }
+  ] : [
     { value: 'all', label: 'All Fields' },
     { value: 'company', label: 'Company' },
     { value: 'contact', label: 'Contact' },
@@ -205,9 +177,12 @@ const SearchInterface = () => {
           <Search className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-textPrimary">Search Interface</h2>
+          <h2 className="text-xl font-semibold text-textPrimary">
+            {currentMode === 'campaign' ? '🎯 Campaign Data Retrieval' : 'Search Interface'}
+          </h2>
           <p className="text-textSecondary text-sm">
-            {llmMode === 'LLM Enhanced' ? 'AI-powered semantic search' : 'Vector similarity search'}
+            {currentMode === 'campaign' ? 'Search Campaign Data:' : 
+             llmMode === 'LLM Enhanced' ? 'AI-powered semantic search' : 'Vector similarity search'}
           </p>
         </div>
       </div>
@@ -216,7 +191,7 @@ const SearchInterface = () => {
       <div className="space-y-4 mb-6">
         <div>
           <label className="block text-textSecondary text-sm font-medium mb-2">
-            Search Query
+            {currentMode === 'campaign' ? 'Search Campaign Data:' : 'Search Query'}
           </label>
           <textarea
             value={query}

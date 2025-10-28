@@ -1,0 +1,1500 @@
+================================================================================
+                    ICHUNK OPTIMIZER - TECHNICAL DOCUMENTATION
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1. System Overview
+2. Core Technical Concepts
+3. Architecture & Components
+4. Technical Implementation Details
+5. Agentic Chunking Deep Dive
+6. Retrieval-Augmented Generation (RAG)
+7. Vector Embeddings & Semantic Search
+8. Metadata & Filtering
+9. Storage Systems (FAISS & ChromaDB)
+10. API Design & Integration
+
+================================================================================
+1. SYSTEM OVERVIEW
+================================================================================
+
+iChunk Optimizer is an AI-powered data processing and semantic search system
+that intelligently chunks, embeds, and retrieves structured data (CSV/tables)
+for RAG (Retrieval-Augmented Generation) applications.
+
+KEY FEATURES:
+-------------
+- Multiple Chunking Strategies (Fixed, Recursive, Semantic, Document-based, Agentic)
+- Vector Embeddings Generation (Sentence Transformers, OpenAI)
+- Dual Vector Storage (FAISS, ChromaDB)
+- Semantic Search with Similarity Matching
+- Metadata-Enhanced Retrieval
+- Campaign Mode for Marketing Data
+- LLM Integration (Google Gemini)
+- Agentic Chunking (AI-Driven Strategy Selection)
+
+TECH STACK:
+-----------
+Frontend: React 18, Vite, Zustand, Tailwind CSS
+Backend: Python 3.8+, FastAPI, Pandas, NumPy
+AI/ML: Sentence Transformers, FAISS, ChromaDB, Gemini API
+Storage: Pickle serialization, JSON
+
+================================================================================
+2. CORE TECHNICAL CONCEPTS
+================================================================================
+
+2.1 CHUNKING
+------------
+DEFINITION: Breaking down large datasets into smaller, semantically meaningful units.
+
+WHY CHUNKING MATTERS:
+- LLMs have token limits (context windows)
+- Smaller chunks = better retrieval precision
+- Preserves semantic relationships
+- Enables parallel processing
+
+TYPES OF CHUNKING:
+1. Fixed Chunking: Fixed number of rows per chunk
+2. Recursive Chunking: Split by separators (newline, spaces)
+3. Semantic Clustering: K-means clustering on embeddings
+4. Document-Based: Group by key columns (e.g., user_id)
+5. Agentic Chunking: AI analyzes data and selects optimal strategy
+
+CHUNKING ALGORITHMS USED:
+--------------------------
+- RecursiveCharacterTextSplitter: Recursive separator-based splitting
+- K-means clustering: Group similar rows using embeddings
+- GroupBy operations: Pandas groupby for entity-based chunking
+- Token-aware splitting: Respect token limits, not just character counts
+
+2.2 EMBEDDINGS
+--------------
+DEFINITION: Vector representations of text that capture semantic meaning in
+high-dimensional space.
+
+HOW EMBEDDINGS WORK:
+1. Input: Text chunk ("customer_id: 123, product: laptop")
+2. Model: Sentence Transformer (e.g., paraphrase-MiniLM-L6-v2)
+3. Output: 384-dimensional vector [0.23, -0.45, ..., 0.12]
+
+EMBEDDING MODELS SUPPORTED:
+----------------------------
+1. Local Models:
+   - paraphrase-MiniLM-L6-v2 (384 dim, 22M params)
+   - all-MiniLM-L6-v2 (384 dim, 22.7M params)
+   - Fast, no API costs
+
+2. OpenAI Models:
+   - text-embedding-ada-002 (1536 dim)
+   - OpenAI API integration
+   - Higher quality, API costs
+
+EMBEDDING PROCESS:
+------------------
+def embed_texts(chunks, model_name, batch_size=64):
+    # Initialize model
+    model = SentenceTransformer(model_name)
+    
+    # Batch processing for efficiency
+    embeddings = model.encode(chunks, batch_size=batch_size)
+    
+    # Normalize to float32 for FAISS
+    return embeddings.astype("float32")
+
+TIME COMPLEXITY: O(n * d) where n = chunks, d = embedding dimensions
+
+2.3 METADATA
+------------
+DEFINITION: Structured information about chunks (source, method, parameters).
+
+WHY METADATA MATTERS:
+- Enables filtering (e.g., "only chunks from customer_data table")
+- Tracks chunk origin for debugging
+- Supports advanced retrieval strategies
+- Facilitates audit trails
+
+METADATA STRUCTURE:
+-------------------
+{
+    "chunk_id": "fixed_0001",
+    "method": "fixed",
+    "source_file": "customers.csv",
+    "rows": 100,
+    "columns": ["customer_id", "name", "email"],
+    "timestamp": "2025-01-23T10:30:00Z"
+}
+
+METADATA USAGE:
+---------------
+1. Storage: Attached to vector embeddings in databases
+2. Filtering: Query with metadata constraints
+3. Tracing: Track chunk lineage through processing
+4. Analytics: Understand chunking strategy effectiveness
+
+2.4 SEMANTIC SEARCH
+-------------------
+DEFINITION: Finding documents by meaning, not just keyword matching.
+
+HOW IT WORKS:
+1. Query: "Find customers interested in electronics"
+2. Embedding: Convert query to vector
+3. Similarity: Compute cosine similarity with all chunk embeddings
+4. Ranking: Sort by similarity score
+5. Return: Top-K most similar chunks
+
+SIMILARITY METRICS:
+-------------------
+- Cosine Similarity: Dot product of normalized vectors
+  sim(A, B) = (A · B) / (||A|| * ||B||)
+  
+- L2 Distance (Euclidean): Straight-line distance
+  dist(A, B) = sqrt(sum((Ai - Bi)^2))
+
+RETRIEVAL PROCESS:
+------------------
+def retrieve_similar(query, k=5):
+    # 1. Encode query
+    query_embedding = model.encode([query])
+    
+    # 2. Compute similarities
+    similarities = cosine_similarity(query_embedding, all_embeddings)
+    
+    # 3. Get top-K indices
+    top_indices = np.argsort(similarities)[-k:][::-1]
+    
+    # 4. Format results
+    return [chunks[i] for i in top_indices]
+
+2.5 RETRIEVAL-AUGMENTED GENERATION (RAG)
+-----------------------------------------
+DEFINITION: Combining retrieval (search) with generation (LLM) for accurate answers.
+
+RAG ARCHITECTURE:
+-----------------
+    Input Query
+         |
+         v
+    [Retrieval] --> Find Relevant Chunks
+         |
+         v
+    [Context Assembly] --> Combine chunks into context
+         |
+         v
+    [LLM Generation] --> Generate answer with context
+         |
+         v
+    Final Answer
+
+RAG BENEFITS:
+-------------
+1. Factual Accuracy: Grounded in source data
+2. Up-to-date Information: Based on latest data
+3. No Hallucination: LLM can cite sources
+4. Domain-Specific: Works with proprietary data
+
+RAG WORKFLOW IN ICHUNK:
+------------------------
+def answer_with_rag(query, k=5):
+    # 1. Retrieve chunks
+    chunks = retrieve_similar(query, k)
+    
+    # 2. Format context
+    context = "\n\n".join([f"[Chunk {i+1}]\n{chunk}" for i, chunk in enumerate(chunks)])
+    
+    # 3. Generate answer
+    prompt = f"""Context:
+{context}
+
+Query: {query}
+
+Answer based on the context above."""
+    
+    # 4. Call LLM (Gemini)
+    response = gemini_client.generate(prompt)
+    return response
+
+================================================================================
+3. ARCHITECTURE & COMPONENTS
+================================================================================
+
+3.1 FRONTEND ARCHITECTURE
+---------------------------
+Layer: React Components (Functional Components with Hooks)
+Layer: State Management (Zustand stores)
+Layer: Services (Axios-based API clients)
+Layer: UI Components (Tailwind CSS styling)
+
+COMPONENT HIERARCHY:
+---------------------
+App.jsx (Root)
+  ├── Sidebar (Navigation)
+  ├── ModeSelector (Mode Selection)
+  └── Main Content Area
+      ├── Config1Mode (Basic Configuration Mode)
+      ├── DeepConfigMode (Advanced Configuration Mode)
+      ├── CampaignMode (Marketing Campaign Mode)
+      ├── FastMode (Quick Processing Mode)
+      └── SearchInterface (Semantic Search)
+
+STATE MANAGEMENT (ZUSTAND):
+-----------------------------
+appStore.js:
+- currentMode: 'config1' | 'deep-config' | 'campaign' | 'fast'
+- selectedMode: User-selected mode
+- resetSession: Clear all state
+
+dataStore.js:
+- processingResults: Chunk/embedding results
+- searchResults: Query results
+- exportData: Data for download
+
+3.2 BACKEND ARCHITECTURE
+--------------------------
+Layer: API Layer (FastAPI endpoints)
+Layer: Business Logic (backend.py, backend_campaign.py)
+Layer: AI Agents (backend_agentic.py)
+Layer: Storage Layer (FAISS, ChromaDB, Pickle)
+
+API ENDPOINTS:
+--------------
+# Data Upload & Processing
+POST /upload
+POST /config1/run
+POST /deep_config/preprocess
+POST /deep_config/chunk
+POST /deep_config/store
+
+# Campaign Mode
+POST /campaign/run
+GET /campaign/retrieve
+
+# Retrieval
+POST /retrieve
+POST /retrieve_with_metadata
+
+# Export
+GET /config1/export
+
+# Session Management
+POST /reset-session
+
+GLOBAL STATE VARIABLES:
+----------------------
+current_model: Embedding model instance
+current_store_info: Vector store information
+current_chunks: List of processed chunks
+current_embeddings: Vector embeddings array
+current_metadata: Metadata for chunks
+current_df: Processed DataFrame
+current_file_info: File metadata
+
+3.3 PROCESSING PIPELINE
+------------------------
+STAGE 1: DATA UPLOAD & PREPROCESSING
+-------------------------------------
+Input: Raw CSV file
+Processing:
+  - Read CSV with pandas
+  - Handle missing values (forward fill, mean, mode)
+  - Type conversions (string to numeric, date parsing)
+  - Remove stopwords (optional)
+  - Apply Excel safety (prevent formula injection)
+Output: Cleaned DataFrame
+
+STAGE 2: CHUNKING
+-----------------
+Input: Cleaned DataFrame
+Chunking Methods:
+  - Fixed: Split into fixed-size row groups
+  - Recursive: Use RecursiveCharacterTextSplitter
+  - Semantic: K-means clustering on embeddings
+  - Document: Group by key column (e.g., user_id)
+  - Agentic: AI-driven strategy selection
+Output: List of text chunks + metadata
+
+STAGE 3: EMBEDDING
+------------------
+Input: Text chunks
+Processing:
+  - Initialize SentenceTransformer model
+  - Batch encoding (batch_size=64)
+  - Parallel processing for large datasets (>500 chunks)
+  - Normalize to float32
+Output: NumPy array of embeddings (n_chunks × embedding_dim)
+
+STAGE 4: STORAGE
+----------------
+Input: Embeddings + chunks + metadata
+Storage Options:
+  - FAISS: In-memory index, pickle serialization
+  - ChromaDB: Persistent database, collection-based
+Output: Vector store with index + metadata
+
+STAGE 5: RETRIEVAL
+------------------
+Input: Query text + K (number of results)
+Processing:
+  - Encode query with same model
+  - Vector similarity search (cosine or L2)
+  - Metadata filtering (optional)
+  - Ranking by similarity score
+Output: Top-K similar chunks with scores
+
+================================================================================
+4. TECHNICAL IMPLEMENTATION DETAILS
+================================================================================
+
+4.1 CHUNKING IMPLEMENTATION
+----------------------------
+
+FIXED CHUNKING:
+---------------
+def chunk_fixed_enhanced(df, chunk_size=400, overlap=50):
+    """
+    Split DataFrame into fixed-size chunks with overlap.
+    """
+    chunks = []
+    total_rows = len(df)
+    
+    for i in range(0, total_rows, chunk_size - overlap):
+        chunk_df = df.iloc[i:i + chunk_size]
+        chunk_text = df_to_text(chunk_df)
+        chunks.append(chunk_text)
+    
+    return chunks
+
+COMPLEXITY: O(n) where n = rows
+OVERLAP: Prevents information loss at chunk boundaries
+
+RECURSIVE CHUNKING:
+--------------------
+def chunk_recursive_keyvalue_enhanced(df, chunk_size=400, overlap=50):
+    """
+    Recursively split text using separators with token awareness.
+    """
+    # Convert DataFrame to text
+    full_text = df_to_text(df)
+    
+    # Initialize splitter
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        separators=["\n\n", "\n", " | ", " "]
+    )
+    
+    # Split with recursion
+    chunks = splitter.split_text(full_text)
+    return chunks
+
+SEPARATORS ORDER: Paragraph → Line → Field → Word → Character
+
+SEMANTIC CLUSTERING:
+---------------------
+def chunk_semantic_cluster_enhanced(df, n_clusters=10):
+    """
+    Group semantically similar rows using K-means.
+    """
+    # 1. Convert rows to text
+    row_texts = [df_to_text_row(df.iloc[i]) for i in range(len(df))]
+    
+    # 2. Embed rows
+    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+    embeddings = model.encode(row_texts)
+    
+    # 3. Cluster
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_labels = kmeans.fit_predict(embeddings)
+    
+    # 4. Group by cluster
+    chunks = []
+    for cluster_id in range(n_clusters):
+        cluster_rows = df[cluster_labels == cluster_id]
+        chunks.append(df_to_text(cluster_rows))
+    
+    return chunks
+
+COMPLEXITY: O(n * log(n)) for clustering
+BEST USE CASE: Unstructured data with natural groupings
+
+DOCUMENT-BASED CHUNKING:
+-------------------------
+def document_based_chunking_enhanced(df, key_column, token_limit=2000):
+    """
+    Group rows by key column and respect token limits.
+    """
+    chunks = []
+    metadata = []
+    
+    # Group by key column
+    for key_value, group_df in df.groupby(key_column):
+        # Convert group to text
+        chunk_text = df_to_text(group_df)
+        
+        # Check token limit
+        estimated_tokens = len(chunk_text.split())
+        
+        if estimated_tokens <= token_limit:
+            chunks.append(chunk_text)
+            metadata.append({
+                "group_key": key_value,
+                "token_count": estimated_tokens
+            })
+        else:
+            # Split large groups
+            sub_chunks = split_large_group(group_df, token_limit)
+            chunks.extend(sub_chunks)
+    
+    return chunks, metadata
+
+BEST USE CASE: Data with natural groupings (e.g., user transactions)
+
+4.2 EMBEDDING IMPLEMENTATION
+-----------------------------
+
+PARALLEL EMBEDDING:
+-------------------
+def parallel_embed_texts_enhanced(chunks, model_name, batch_size=64, num_workers=4):
+    """
+    Parallel embedding for large datasets using ThreadPoolExecutor.
+    """
+    # Initialize model once
+    model = SentenceTransformer(model_name)
+    
+    def encode_batch(batch):
+        return model.encode(batch, batch_size=batch_size)
+    
+    # Split into batches
+    batches = [chunks[i:i+batch_size] for i in range(0, len(chunks), batch_size)]
+    
+    # Process in parallel
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        results = list(executor.map(encode_batch, batches))
+    
+    # Combine results
+    embeddings = np.vstack(results)
+    return model, embeddings
+
+PERFORMANCE BENCHMARK:
+----------------------
+Dataset: 10,000 chunks
+Single-threaded: 45 seconds
+Parallel (4 workers): 15 seconds
+Speedup: ~3x
+
+OPENAI INTEGRATION:
+-------------------
+class OpenAIEmbeddingAPI:
+    def encode(self, texts, batch_size=64):
+        embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            response = self.client.embeddings.create(
+                model=self.model_name,
+                input=batch
+            )
+            batch_embeddings = [item.embedding for item in response.data]
+            embeddings.extend(batch_embeddings)
+        return np.array(embeddings)
+
+4.3 STORAGE IMPLEMENTATION
+---------------------------
+
+FAISS STORAGE:
+--------------
+def store_faiss_enhanced(chunks, embeddings, metadata=None):
+    """
+    Store embeddings in FAISS with metadata support.
+    """
+    import faiss
+    import pickle
+    
+    # 1. Create index
+    d = embeddings.shape[1]  # embedding dimension
+    index = faiss.IndexFlatL2(d)
+    
+    # 2. Add embeddings in batches
+    batch_size = 10000
+    for i in range(0, len(embeddings), batch_size):
+        batch_embeddings = embeddings[i:i+batch_size]
+        index.add(batch_embeddings)
+    
+    # 3. Create metadata index
+    metadata_index = create_metadata_index(metadata)
+    
+    # 4. Serialize
+    faiss.write_index(index, "faiss_store/index.faiss")
+    with open("faiss_store/data.pkl", "wb") as f:
+        pickle.dump({
+            "documents": chunks,
+            "metadata": metadata,
+            "metadata_index": metadata_index
+        }, f)
+    
+    return {"type": "faiss", "index": index, "data": faiss_data}
+
+FAISS INDEXES:
+- IndexFlatL2: Brute force, exact search
+- IndexIVFFlat: Inverted file, approximate search (faster)
+- IndexHNSW: Hierarchical Navigable Small World (production-grade)
+
+CHROMADB STORAGE:
+-----------------
+def store_chroma_enhanced(chunks, embeddings, collection_name="chunks_collection"):
+    """
+    Store embeddings in ChromaDB with metadata.
+    """
+    import chromadb
+    
+    # 1. Initialize ChromaDB
+    chroma_client = chromadb.Client()
+    
+    # 2. Create/get collection
+    collection = chroma_client.get_or_create_collection(
+        name=collection_name,
+        metadata={"description": "Chunks collection"}
+    )
+    
+    # 3. Add documents with metadata
+    collection.add(
+        embeddings=embeddings.tolist(),
+        documents=chunks,
+        metadatas=metadata,
+        ids=[f"chunk_{i}" for i in range(len(chunks))]
+    )
+    
+    return {"type": "chroma", "collection": collection, "collection_name": collection_name}
+
+CHROMADB FEATURES:
+- Persistent storage (SQLite backend)
+- Metadata filtering
+- Incremental updates
+- Multiple collections
+
+4.4 RETRIEVAL IMPLEMENTATION
+-----------------------------
+
+COSINE SIMILARITY SEARCH:
+--------------------------
+def retrieve_similar(query, k=5):
+    """
+    Retrieve top-K most similar chunks.
+    """
+    # 1. Encode query
+    query_embedding = model.encode([query])
+    
+    # 2. Compute similarities
+    similarities = cosine_similarity(query_embedding, all_embeddings)[0]
+    
+    # 3. Get top-K indices
+    top_indices = np.argsort(similarities)[-k:][::-1]
+    
+    # 4. Format results
+    results = []
+    for rank, idx in enumerate(top_indices, 1):
+        results.append({
+            "rank": rank,
+            "content": chunks[idx],
+            "similarity": float(similarities[idx]),
+            "distance": float(1 - similarities[idx])
+        })
+    
+    return results
+
+METADATA FILTERING:
+-------------------
+def query_with_metadata(index, faiss_data, query_embedding, k, filter_dict):
+    """
+    Retrieve with metadata filtering.
+    """
+    # 1. Apply metadata filter
+    matching_indices = apply_metadata_filter(
+        faiss_data["metadata_index"],
+        filter_dict
+    )
+    
+    if not matching_indices:
+        return []
+    
+    # 2. Vector search
+    distances, all_indices = index.search(query_embedding, k * 3)
+    
+    # 3. Filter by metadata
+    results = []
+    for distance, idx in zip(distances[0], all_indices[0]):
+        if idx in matching_indices:
+            results.append({
+                "content": faiss_data["documents"][idx],
+                "similarity": 1 / (1 + distance),
+                "metadata": faiss_data["metadata"][idx]
+            })
+        if len(results) >= k:
+            break
+    
+    return results
+
+================================================================================
+5. AGENTIC CHUNKING DEEP DIVE
+================================================================================
+
+5.1 WHAT IS AGENTIC CHUNKING?
+------------------------------
+Agentic chunking uses AI agents to intelligently analyze data and decide the
+optimal chunking strategy based on:
+- Schema structure
+- Entity relationships
+- User context
+- Data type and domain
+
+5.2 AGENTIC AGENTS
+------------------
+
+SCHEMA-AWARE AGENT:
+-------------------
+class SchemaAwareChunkingAgent:
+    """
+    Analyzes table schema to recommend optimal grouping strategy.
+    """
+    def analyze_schema(self, df):
+        """
+        AI analyzes schema and recommends:
+        - grouping_column: Best column for grouping
+        - chunk_size: Optimal size
+        - priority_columns: Important columns
+        """
+        schema_info = {
+            'columns': df.columns,
+            'dtypes': df.dtypes,
+            'sample_data': df.head(3),
+            'unique_counts': df.nunique()
+        }
+        
+        prompt = """
+        Analyze this schema and recommend chunking strategy:
+        - Is there a natural grouping column?
+        - Should rows be grouped by a specific column?
+        - What's the semantic relationship between columns?
+        """
+        
+        response = self.gemini_client.analyze_with_json(prompt)
+        return response
+    
+    def chunk_by_schema(self, df, analysis):
+        """
+        Execute chunking based on AI recommendations.
+        """
+        strategy = analysis.get("recommended_strategy", "fixed_rows")
+        grouping_column = analysis.get("grouping_column")
+        
+        if strategy == "group_by_column" and grouping_column:
+            # Group by identified column
+            chunks = []
+            for group_value, group_df in df.groupby(grouping_column):
+                chunk_text = df_to_text(group_df)
+                chunks.append(chunk_text)
+            return chunks
+        else:
+            # Fallback to fixed rows
+            return self._fallback_chunk(df)
+
+ENTITY-CENTRIC AGENT:
+---------------------
+class EntityCentricChunkingAgent:
+    """
+    Identifies and groups by primary entities (user_id, product_id, etc.).
+    """
+    def identify_entity_columns(self, df):
+        """
+        AI identifies primary entity columns.
+        """
+        prompt = """
+        Identify primary entity columns in this data.
+        Examples: user_id, customer_id, product_id, company_name.
+        Return JSON with:
+        - primary_entity_column: Best entity column
+        - reasoning: Why this column
+        """
+        response = self.gemini_client.analyze_with_json(prompt)
+        return response
+    
+    def chunk_by_entity(self, df, entity_analysis):
+        """
+        Chunk by identified entities.
+        """
+        entity_column = entity_analysis.get("primary_entity_column")
+        
+        if entity_column and entity_column in df.columns:
+            chunks = []
+            for entity_value, group_df in df.groupby(entity_column):
+                chunk_text = df_to_text(group_df)
+                chunks.append(chunk_text)
+            return chunks
+        else:
+            return self._fallback_chunk(df)
+
+5.3 AGENTIC ORCHESTRATOR
+-------------------------
+class AgenticChunkingOrchestrator:
+    """
+    Coordinates multiple agents to select and execute optimal chunking strategy.
+    """
+    def analyze_and_chunk(self, df, strategy="auto", user_context=None):
+        """
+        Main entry point for agentic chunking.
+        """
+        # Step 1: AI analyzes data comprehensively
+        comprehensive_analysis = self._analyze_data(df, user_context)
+        
+        # Step 2: AI selects best strategy
+        if strategy == "auto":
+            selected_strategy = self._ai_select_strategy(df, user_context)
+        else:
+            selected_strategy = strategy
+        
+        # Step 3: Execute selected strategy
+        if selected_strategy == "schema":
+            analysis = self.schema_agent.analyze_schema(df)
+            chunks, metadata = self.schema_agent.chunk_by_schema(df, analysis)
+        
+        elif selected_strategy == "entity":
+            entity_analysis = self.entity_agent.identify_entity_columns(df)
+            chunks, metadata = self.entity_agent.chunk_by_entity(df, entity_analysis)
+        
+        else:
+            # Default fallback
+            chunks, metadata = self._fallback_chunk(df)
+        
+        return chunks, metadata
+
+WORKFLOW EXAMPLE:
+-----------------
+Input: Customer transaction data (10,000 rows)
+
+Step 1: AI Analysis
+- Data type: Transactional
+- Entities: [customer_id, order_id, product_id]
+- Relationships: customer → orders → products
+- Recommendation: Entity-centric by customer_id
+
+Step 2: Strategy Selection
+- Selected: Entity-centric chunking
+- Reasoning: Preserves customer context
+
+Step 3: Execution
+- Group by customer_id
+- Result: 500 chunks (one per customer)
+
+Step 4: Metadata
+- Each chunk tagged with customer_id
+- Enables filtering (e.g., "chunks from customer_123")
+
+5.4 GEMINI API INTEGRATION
+---------------------------
+class GeminiAgenticClient:
+    """
+    Gemini client specialized for agentic chunking analysis.
+    """
+    def __init__(self, api_key, model="gemini-2.0-flash-exp"):
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel(model)
+    
+    def analyze_with_json(self, prompt):
+        """
+        Generate AI analysis and parse as JSON.
+        """
+        response = self.model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.3,
+                "max_output_tokens": 2048
+            }
+        )
+        
+        answer = response.text
+        
+        # Extract JSON from response
+        if "```json" in answer:
+            json_text = answer.split("```json")[1].split("```")[0]
+        else:
+            json_text = answer
+        
+        result = json.loads(json_text)
+        return result
+
+COST ANALYSIS:
+--------------
+Model: gemini-2.0-flash-exp
+Requests per chunking: ~5-10 API calls
+Cost per 1000 chunks: ~$0.05-0.10
+Time per analysis: 2-5 seconds
+
+================================================================================
+6. RETRIEVAL-AUGMENTED GENERATION (RAG)
+================================================================================
+
+6.1 RAG ARCHITECTURE
+---------------------
+Input: User Query ("Find customers who bought electronics last month")
+
+[Stage 1: Retrieval]
+- Query: "Find customers who bought electronics last month"
+- Encode: Convert to embedding vector
+- Search: Find top-K similar chunks from vector database
+- Results: 
+  [Rank 1] customer_id: 123, purchase: laptop, date: 2025-01-15
+  [Rank 2] customer_id: 456, purchase: headphones, date: 2025-01-20
+  [Rank 3] customer_id: 789, purchase: smartphone, date: 2025-01-10
+
+[Stage 2: Context Assembly]
+Context:
+[Chunk 1]
+customer_id: 123, purchase: laptop, date: 2025-01-15
+
+[Chunk 2]
+customer_id: 456, purchase: headphones, date: 2025-01-20
+
+[Chunk 3]
+customer_id: 789, purchase: smartphone, date: 2025-01-10
+
+[Stage 3: Generation]
+Prompt to LLM:
+"""
+You are a data analyst. Answer based on the context below.
+
+Context:
+[chunks above]
+
+Query: Find customers who bought electronics last month
+
+Answer:
+"""
+
+[Stage 4: LLM Response]
+Output:
+"""
+Based on the provided context:
+- Customer 123 bought a laptop on 2025-01-15
+- Customer 456 bought headphones on 2025-01-20
+- Customer 789 bought a smartphone on 2025-01-10
+
+These are customers who purchased electronics in January 2025.
+"""
+
+6.2 LLM INTEGRATION (GOOGLE GEMINI)
+------------------------------------
+
+LOADING LLM CONFIGURATION:
+---------------------------
+import yaml
+from google import generativeai as genai
+
+def load_llm_config():
+    with open("llm_config.yaml") as f:
+        config = yaml.safe_load(f)
+    return config
+
+def initialize_llm_client(profile="qa"):
+    config = load_llm_config()
+    profile_config = config["profiles"][profile]
+    
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    
+    client = genai.GenerativeModel(
+        model=profile_config["model"],
+        generation_config={
+            "temperature": profile_config["temperature"],
+            "max_output_tokens": profile_config["max_output_tokens"]
+        }
+    )
+    
+    return client
+
+LLM PROFILES:
+-------------
+1. qa (Question Answering):
+   - Model: gemini-2.0-flash-lite
+   - Temperature: 0.3 (factual)
+   - Max tokens: 1024
+   - Use case: Precise QA from data
+
+2. creative:
+   - Model: gemini-2.0-flash-lite
+   - Temperature: 0.7 (creative)
+   - Max tokens: 2048
+   - Use case: Creative content generation
+
+3. analysis:
+   - Model: gemini-2.0-flash-lite
+   - Temperature: 0.1 (analytical)
+   - Max tokens: 2048
+   - Use case: Data analysis
+
+4. agentic_chunking:
+   - Model: gemini-2.0-flash-exp
+   - Temperature: 0.3
+   - Max tokens: 2048
+   - Use case: Strategy selection
+
+ANSWER GENERATION:
+------------------
+def generate_answer_with_rag(query, k=5):
+    """
+    Complete RAG pipeline with LLM generation.
+    """
+    # 1. Retrieve relevant chunks
+    retrieval_results = retrieve_similar(query, k)
+    chunks = [r["content"] for r in retrieval_results["results"]]
+    
+    # 2. Format context
+    context = "\n\n".join([
+        f"[Chunk {i+1}]\n{chunk}" 
+        for i, chunk in enumerate(chunks)
+    ])
+    
+    # 3. Create prompt
+    prompt = f"""You are a helpful data analyst. Answer the query based on the context provided.
+
+Context:
+{context}
+
+Query: {query}
+
+Please provide a clear and accurate answer based only on the context above. If the information is not available in the context, say so.
+"""
+    
+    # 4. Generate answer
+    response = gemini_client.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0.3,
+            "max_output_tokens": 1024
+        }
+    )
+    
+    answer = response.text
+    
+    return {
+        "answer": answer,
+        "sources": chunks,
+        "retrieval_results": retrieval_results
+    }
+
+================================================================================
+7. VECTOR EMBEDDINGS & SEMANTIC SEARCH
+================================================================================
+
+7.1 EMBEDDING THEORY
+--------------------
+
+VECTOR SPACE MODEL:
+-------------------
+Text chunks are mapped to points in high-dimensional space (e.g., 384 dimensions).
+
+Example:
+Chunk: "customer_id: 123, product: laptop, price: 999"
+Embedding: [0.23, -0.45, 0.12, ..., 0.89] (384 dimensions)
+
+SEMANTIC MEANING:
+-----------------
+Similar text → Similar embeddings → Close in vector space
+
+Example:
+Text A: "customer buys laptop"
+Text B: "customer purchases computer"
+Text C: "weather is sunny"
+
+Similarity(A, B) = 0.85 (high, semantically similar)
+Similarity(A, C) = 0.12 (low, semantically different)
+
+7.2 SENTENCE TRANSFORMERS
+--------------------------
+
+MODEL ARCHITECTURE:
+-------------------
+Input Layer: Token embeddings (WordPiece/BPE)
+Encoder: BERT-based transformer (6 layers)
+Output Layer: Mean pooling + normalization
+Output: 384-dimensional vector
+
+POPULAR MODELS:
+---------------
+1. paraphrase-MiniLM-L6-v2:
+   - Dimensions: 384
+   - Params: 22M
+   - Speed: Fast
+   - Quality: Good for general purpose
+
+2. all-MiniLM-L6-v2:
+   - Dimensions: 384
+   - Params: 22.7M
+   - Speed: Fast
+   - Quality: Slightly better than paraphrase
+
+3. all-mpnet-base-v2:
+   - Dimensions: 768
+   - Params: 110M
+   - Speed: Slower
+   - Quality: Best for semantic search
+
+MODEL COMPARISON:
+-----------------
+Dataset: 10,000 chunks
+Query: "Find customers interested in electronics"
+
+Model: paraphrase-MiniLM-L6-v2
+- Latency: 2.5s
+- Precision: 0.82
+
+Model: all-mpnet-base-v2
+- Latency: 8.1s
+- Precision: 0.91
+
+7.3 SIMILARITY COMPUTATION
+---------------------------
+
+COSINE SIMILARITY:
+------------------
+def cosine_similarity(vec1, vec2):
+    """
+    Compute cosine similarity between two vectors.
+    
+    Formula: sim(A, B) = (A · B) / (||A|| * ||B||)
+    
+    Range: [-1, 1]
+    - 1: Identical
+    - 0: Orthogonal (unrelated)
+    - -1: Opposite
+    """
+    dot_product = np.dot(vec1, vec2)
+    norm_a = np.linalg.norm(vec1)
+    norm_b = np.linalg.norm(vec2)
+    similarity = dot_product / (norm_a * norm_b)
+    return similarity
+
+L2 DISTANCE (EUCLIDEAN):
+------------------------
+def l2_distance(vec1, vec2):
+    """
+    Compute Euclidean distance between two vectors.
+    
+    Formula: dist(A, B) = sqrt(sum((Ai - Bi)^2))
+    
+    Range: [0, ∞]
+    - 0: Identical
+    - Lower: More similar
+    - Higher: More different
+    """
+    diff = vec1 - vec2
+    distance = np.sqrt(np.sum(diff ** 2))
+    return distance
+
+SIMILARITY TO METRIC CONVERSION:
+--------------------------------
+# FAISS often uses L2 distance
+similarity = 1 / (1 + l2_distance)
+
+7.4 RETRIEVAL ALGORITHMS
+-------------------------
+
+BRUTE FORCE (EXACT SEARCH):
+----------------------------
+def brute_force_search(query_embedding, embeddings, k=5):
+    """
+    Compute similarity with all embeddings.
+    O(n*d) complexity.
+    """
+    similarities = []
+    for emb in embeddings:
+        sim = cosine_similarity(query_embedding[0], emb)
+        similarities.append(sim)
+    
+    top_k_indices = np.argsort(similarities)[-k:][::-1]
+    return top_k_indices, similarities
+
+Complexity: O(n*d) where n=chunks, d=embedding_dim
+
+APPROXIMATE NEIGHBOR SEARCH (ANN):
+-----------------------------------
+FAISS IndexIVFFlat:
+- Partition embeddings into clusters
+- Search only relevant clusters
+- Trade-off: Speed vs. precision
+
+FAISS IndexHNSW:
+- Hierarchical Navigable Small World
+- Graph-based search
+- Very fast for large datasets
+
+================================================================================
+8. METADATA & FILTERING
+================================================================================
+
+8.1 METADATA STRUCTURE
+------------------------
+
+STANDARD METADATA:
+------------------
+{
+    "chunk_id": "fixed_0001",
+    "method": "fixed",
+    "rows": 100,
+    "columns": ["customer_id", "name", "email"],
+    "source_file": "customers.csv",
+    "timestamp": "2025-01-23T10:30:00Z"
+}
+
+CAMPAIGN METADATA:
+------------------
+{
+    "chunk_id": "campaign_0001",
+    "method": "record_based",
+    "lead_id": "AUTO-12345",
+    "company_name": "Acme Corp",
+    "lead_source": "walk-in",
+    "vehicle_type": "SUV",
+    "brand": "Honda",
+    "price_range": "$50k-$75k",
+    "customer_type": "Trade-in",
+    "purchase_probability": "70"
+}
+
+AGENTIC METADATA:
+-----------------
+{
+    "chunk_id": "agentic_0001",
+    "method": "agentic",
+    "strategy": "entity",
+    "primary_entity": "customer_id",
+    "entity_value": "123",
+    "user_context": "Customer analysis",
+    "ai_reasoning": "Grouped by customer_id to preserve transaction history",
+    "timestamp": "2025-01-23T10:30:00Z"
+}
+
+8.2 METADATA INDEXING
+---------------------
+
+INVERTED INDEX:
+---------------
+def create_metadata_index(metadata):
+    """
+    Create inverted index for fast filtering.
+    
+    Input:
+    [
+        {"chunk_id": "1", "category": "electronics", "price": "high"},
+        {"chunk_id": "2", "category": "electronics", "price": "low"},
+        {"chunk_id": "3", "category": "clothing", "price": "high"}
+    ]
+    
+    Output:
+    {
+        "category": {
+            "electronics": [0, 1],
+            "clothing": [2]
+        },
+        "price": {
+            "high": [0, 2],
+            "low": [1]
+        }
+    }
+    """
+    index = {}
+    
+    for i, meta in enumerate(metadata):
+        for key, value in meta.items():
+            if key not in index:
+                index[key] = {}
+            if value not in index[key]:
+                index[key][value] = []
+            index[key][value].append(i)
+    
+    return index
+
+8.3 METADATA FILTERING
+----------------------
+
+FILTER APPLICATION:
+-------------------
+def apply_metadata_filter(metadata_index, filter_dict):
+    """
+    Apply metadata filters and return matching indices.
+    
+    Example:
+    filter_dict = {"category": "electronics", "price": "high"}
+    
+    Returns: [0] (only chunk 0 matches both filters)
+    """
+    # Start with all indices
+    matching_indices = None
+    
+    for key, value in filter_dict.items():
+        if key not in metadata_index or value not in metadata_index[key]:
+            return []  # No matches
+        
+        current_matches = set(metadata_index[key][value])
+        
+        if matching_indices is None:
+            matching_indices = current_matches
+        else:
+            matching_indices &= current_matches  # Intersection
+    
+    return list(matching_indices)
+
+INTEGRATED RETRIEVAL WITH FILTERING:
+-------------------------------------
+def query_with_metadata_filter(index, faiss_data, query_embedding, k, filter_dict):
+    """
+    Retrieve with both similarity search and metadata filtering.
+    """
+    # 1. Apply metadata filter
+    matching_indices = apply_metadata_filter(
+        faiss_data["metadata_index"],
+        filter_dict
+    )
+    
+    if not matching_indices:
+        return []
+    
+    # 2. Expand search to ensure we get k results
+    search_k = k * 3
+    
+    # 3. Vector search
+    distances, all_indices = index.search(query_embedding, search_k)
+    
+    # 4. Filter by metadata
+    results = []
+    for distance, idx in zip(distances[0], all_indices[0]):
+        if idx in matching_indices:
+            chunk_data = {
+                "content": faiss_data["documents"][idx],
+                "similarity": 1 / (1 + distance),
+                "metadata": faiss_data["metadata"][idx]
+            }
+            results.append(chunk_data)
+        
+        if len(results) >= k:
+            break
+    
+    return results
+
+================================================================================
+9. STORAGE SYSTEMS (FAISS & ChromaDB)
+================================================================================
+
+9.1 FAISS (Facebook AI Similarity Search)
+-------------------------------------------
+
+WHAT IS FAISS:
+--------------
+- Open-source library for efficient similarity search
+- Developed by Facebook AI Research
+- Optimized for large-scale vector search
+
+INDEX TYPES:
+------------
+1. IndexFlatL2:
+   - Exact search using L2 distance
+   - O(n*d) complexity
+   - Best for: Small datasets (<100K)
+
+2. IndexFlatIP:
+   - Exact search using inner product
+   - Similar to cosine similarity
+   - Best for: Normalized embeddings
+
+3. IndexIVFFlat:
+   - Approximate search with clustering
+   - Faster than Flat indexes
+   - Best for: Medium datasets (100K-10M)
+
+4. IndexHNSW:
+   - Hierarchical Navigable Small World
+   - Graph-based approximate search
+   - Best for: Large datasets (>10M)
+
+FAISS STORAGE:
+--------------
+# Create index
+index = faiss.IndexFlatL2(embedding_dim)
+index.add(embeddings)
+
+# Save to disk
+faiss.write_index(index, "index.faiss")
+pickle.dump(data, open("data.pkl", "wb"))
+
+# Load from disk
+index = faiss.read_index("index.faiss")
+data = pickle.load(open("data.pkl", "rb"))
+
+9.2 CHROMADB
+------------
+
+WHAT IS CHROMADB:
+-----------------
+- Vector database with persistent storage
+- Built-in metadata support
+- SQLite backend
+- REST API support
+
+COLLECTION MANAGEMENT:
+----------------------
+# Initialize ChromaDB
+chroma_client = chromadb.Client()
+
+# Create collection
+collection = chroma_client.create_collection(
+    name="chunks_collection",
+    metadata={"description": "Chunks"}
+)
+
+# Add documents
+collection.add(
+    embeddings=embeddings.tolist(),
+    documents=chunks,
+    metadatas=metadata,
+    ids=[f"chunk_{i}" for i in range(len(chunks))]
+)
+
+QUERY WITH METADATA:
+--------------------
+results = collection.query(
+    query_embeddings=[query_embedding],
+    n_results=5,
+    where={"category": "electronics"},  # Metadata filter
+    where_document={"$contains": "laptop"}  # Text filter
+)
+
+9.3 STORAGE COMPARISON
+----------------------
+
+FAISS:
+------
+Pros:
+- Very fast for large-scale search
+- Multiple index types
+- Lightweight
+- Memory efficient
+
+Cons:
+- No built-in persistence (need pickle)
+- No metadata filtering built-in
+- Manual serialization
+
+CHROMADB:
+---------
+Pros:
+- Built-in persistence
+- Metadata support
+- REST API
+- Automatic filtering
+
+Cons:
+- Slower than FAISS for pure vector search
+- Higher memory usage
+- SQLite backend limitations
+
+RECOMMENDATION:
+---------------
+- Use FAISS for: Maximum performance, large datasets
+- Use ChromaDB for: Metadata-heavy applications, persistence needs
+
+================================================================================
+10. API DESIGN & INTEGRATION
+================================================================================
+
+10.1 API ARCHITECTURE
+---------------------
+
+ENDPOINT ORGANIZATION:
+----------------------
+# Data Processing
+POST /config1/run
+POST /deep_config/preprocess
+POST /deep_config/chunk
+POST /deep_config/store
+
+# Campaign Mode
+POST /campaign/run
+GET /campaign/retrieve
+
+# Retrieval
+POST /retrieve
+POST /retrieve_with_metadata
+
+# Export
+GET /config1/export
+
+# Session
+POST /reset-session
+
+REQUEST/RESPONSE FORMAT:
+------------------------
+Request (Deep Config):
+{
+    "chunk_method": "agentic",
+    "chunk_size": 400,
+    "agentic_strategy": "auto",
+    "user_context": "Customer analysis"
+}
+
+Response:
+{
+    "status": "success",
+    "chunks_created": 500,
+    "metadata": [...]
+}
+
+10.2 ERROR HANDLING
+-------------------
+
+ERROR CODES:
+------------
+400: Bad Request (invalid parameters)
+404: Not Found (endpoint not found)
+500: Internal Server Error (processing failed)
+
+ERROR FORMAT:
+-------------
+{
+    "error": "Agentic chunking requires GEMINI_API_KEY environment variable",
+    "status": "error",
+    "details": "..."
+}
+
+10.3 STATE MANAGEMENT
+---------------------
+
+GLOBAL VARIABLES:
+-----------------
+current_model: Model instance
+current_store_info: Store configuration
+current_chunks: Processed chunks
+current_embeddings: Embeddings array
+current_metadata: Chunk metadata
+current_df: Processed DataFrame
+
+STATE PERSISTENCE:
+------------------
+# Save state
+def save_state():
+    with open(STATE_FILE, "wb") as f:
+        pickle.dump({
+            "model": current_model,
+            "chunks": current_chunks,
+            ...
+        }, f)
+
+# Load state
+def load_state():
+    with open(STATE_FILE, "rb") as f:
+        state = pickle.load(f)
+        global current_model, current_chunks, ...
+        current_model = state["model"]
+        ...
+
+================================================================================
+                           END OF TECHNICAL DOCUMENTATION
+================================================================================
+

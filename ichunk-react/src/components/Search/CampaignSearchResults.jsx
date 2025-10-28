@@ -154,3 +154,8 @@ const CampaignSearchResults = ({ searchResults, query }) => {
 };
 
 export default CampaignSearchResults;
+
+
+
+
+
